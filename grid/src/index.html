@@ -1,0 +1,504 @@
+<!--
+Copyright (c) 2026 Malte Doerper
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Visualization Grid</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles-enterprise.css" id="enterprise-theme-stylesheet" disabled>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="app-container">
+        
+        <!-- Control Area (Primary - Top) -->
+        <div class="control-area-primary">
+            <div class="control-area-header">
+                <h3>View Handling</h3>
+                <div class="current-user-display">
+                    <span class="current-user-label">User Name</span>
+                    <strong id="current-user-name" class="current-user-name" contenteditable="true" spellcheck="false" role="textbox" aria-label="Current user name">Local User</strong>
+                </div>
+            </div>
+            
+            <!-- Field Selectors -->
+            <div class="field-selectors axis-selectors">
+                <div class="selector-group">
+                    <label for="x-axis-select">X-Axis:</label>
+                    <select id="x-axis-select" class="field-selector">
+                        <option value="">Select field...</option>
+                    </select>
+                </div>
+                
+                <div class="selector-group">
+                    <label for="y-axis-select">Y-Axis:</label>
+                    <select id="y-axis-select" class="field-selector">
+                        <option value="">Select field...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mode-configurations">
+                <section id="card-layout-section" class="mode-config-section">
+                    <button type="button" id="card-layout-toggle" class="mode-config-toggle" aria-expanded="true" aria-controls="card-layout-panel">
+                        <span>Card Layout</span>
+                        <span class="mode-config-toggle-icon" aria-hidden="true">▾</span>
+                    </button>
+                    <div id="card-layout-panel" class="mode-config-panel">
+                        <div class="field-selectors card-field-selectors">
+                            <div class="selector-group card-layout-top-left">
+                                <label for="top-left-select">Top-Left:</label>
+                                <select id="top-left-select" class="field-selector">
+                                    <option value="">Select field...</option>
+                                </select>
+                            </div>
+
+                            <div class="selector-group card-layout-top-right">
+                                <label for="top-right-select">Top-Right:</label>
+                                <select id="top-right-select" class="field-selector">
+                                    <option value="">Select field...</option>
+                                </select>
+                            </div>
+
+                            <div class="selector-group card-layout-title">
+                                <label for="title-select">Title:</label>
+                                <select id="title-select" class="field-selector">
+                                    <option value="">Select field...</option>
+                                </select>
+                            </div>
+
+                            <div class="selector-group card-layout-bottom-right">
+                                <label for="bottom-right-select">Bottom-Right:</label>
+                                <select id="bottom-right-select" class="field-selector">
+                                    <option value="">Select field...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="table-layout-section" class="mode-config-section hidden">
+                    <button type="button" id="table-layout-toggle" class="mode-config-toggle" aria-expanded="true" aria-controls="table-layout-panel">
+                        <span>Table Columns</span>
+                        <span class="mode-config-toggle-icon" aria-hidden="true">▾</span>
+                    </button>
+                    <div id="table-layout-panel" class="mode-config-panel">
+                        <div class="table-summary-controls">
+                            <label for="table-summary-mode-select">Table Summary</label>
+                            <select id="table-summary-mode-select" class="field-selector table-summary-mode-select">
+                                <option value="none">None</option>
+                                <option value="sum">Sum</option>
+                                <option value="average">Average</option>
+                                <option value="min">Min</option>
+                                <option value="max">Max</option>
+                            </select>
+                        </div>
+                        <div class="table-column-builder">
+                            <div class="table-column-list-group">
+                                <label for="table-available-fields">Available Fields</label>
+                                <select id="table-available-fields" class="table-column-list" multiple size="8"></select>
+                            </div>
+                            <div class="table-column-actions" aria-label="Table column actions">
+                                <button type="button" id="table-columns-add-btn" class="control-btn table-column-action">Add →</button>
+                                <button type="button" id="table-columns-remove-btn" class="control-btn table-column-action">← Remove</button>
+                            </div>
+                            <div class="table-column-list-group">
+                                <label for="table-selected-fields">Selected Columns</label>
+                                <select id="table-selected-fields" class="table-column-list" multiple size="8"></select>
+                                <div class="table-selected-actions" aria-label="Selected table column ordering">
+                                    <button type="button" id="table-columns-move-up-btn" class="control-btn table-column-action">Move Up</button>
+                                    <button type="button" id="table-columns-move-down-btn" class="control-btn table-column-action">Move Down</button>
+                                    <button type="button" id="table-columns-sort-az-btn" class="control-btn table-column-action">Sort A-Z</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            
+            <!-- Data Management Controls -->
+            <div class="data-controls">
+                <div class="file-controls">
+                    <button id="load-data-btn" class="control-btn">📂 Load Data</button>
+                    <button id="reload-data-btn" class="control-btn">🔄 Reload</button>
+                    <button id="save-data-btn" class="control-btn">💾 Save Data</button>
+                    <button id="export-filtered-btn" class="control-btn">📤 Export Filtered</button>
+                </div>
+                
+                <div class="view-controls">
+                    <button id="load-view-btn" class="control-btn">🔧 Load View</button>
+                    <button id="save-view-btn" class="control-btn">🔧 Save View</button>
+                    <button id="compare-view-btn" class="control-btn" title="Open a second window with the same data and view for side-by-side comparison">🔀 Compare View</button>
+                    <label class="filter-toggle-label" title="Show relationship-derived fields in filters">
+                        <input type="checkbox" id="show-relationship-fields-cb"> Relationship Fields
+                    </label>
+                    <label class="filter-toggle-label" title="Show other derived fields in filters">
+                        <input type="checkbox" id="show-derived-fields-cb"> Derived Fields
+                    </label>
+                    <label class="filter-toggle-label" title="Enable card hover tooltips">
+                        <input type="checkbox" id="show-tooltips-cb"> Tooltips
+                    </label>
+                    <label class="filter-toggle-label" title="Cards grow to fit content">
+                        <input type="checkbox" id="grow-cards-cb"> Grow Cards
+                    </label>
+                    <label class="filter-toggle-label" title="Render each populated grid cell as a compact table">
+                        <input type="checkbox" id="table-mode-cb"> Table Mode
+                    </label>
+                </div>
+            </div>
+            
+        </div>
+        
+        <!-- Filters (Slicers) Area -->
+        <div class="slicers-area">
+            <h3>Filters</h3>
+            <div id="slicers-container" class="slicers-container">
+                <!-- Slicers will be generated dynamically -->
+            </div>
+        </div>
+        
+        <!-- Control Area (Secondary - Tags) -->
+        <div class="control-area-tags">
+            <div class="section-header">
+                <h3>Tags</h3>
+                <button type="button" id="add-tag-btn" class="btn btn-secondary btn-add-tag">+ Add Tag</button>
+            </div>
+            <div id="tags-container" class="tags-container">
+                <!-- Tags will be generated dynamically -->
+            </div>
+        </div>
+
+        <!-- Control Area (Secondary - Groups) -->
+        <div class="control-area-groups">
+            <div class="section-header">
+                <h3>Groups</h3>
+                <button type="button" id="add-group-btn" class="btn btn-secondary btn-add-group">+ Add Group</button>
+            </div>
+            <div id="groups-container" class="groups-container">
+                <!-- Groups will be generated dynamically -->
+            </div>
+        </div>
+        
+        <!-- Grid Area -->
+        <div class="grid-area">
+            <div id="group-legend" class="group-legend hidden">
+                <!-- Group legend items generated dynamically -->
+            </div>
+            <div id="grid-container" class="grid-container">
+                <!-- Grid headers and cards will be generated dynamically -->
+                <div class="grid-placeholder">
+                    <p>Load data to begin visualization</p>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- Interaction Surfaces -->
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="tooltip hidden">
+        <div class="tooltip-content">
+            <!-- Content populated dynamically -->
+        </div>
+    </div>
+    
+    <!-- Comments Dialog -->
+    <div id="comments-dialog" class="modal comments-dialog hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Comments</h3>
+                <button class="modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="comments-container" class="comments-container">
+                    <!-- Comments populated dynamically -->
+                </div>
+                <div class="add-comment">
+                    <textarea id="comment-message-input" placeholder="Add a comment..." rows="3"></textarea>
+                    <button id="add-comment-btn" class="btn btn-primary">Add Comment</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="comments-close-btn" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tag Edit Dialog -->
+    <div id="tag-edit-dialog" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="tag-edit-dialog-title">Edit Tag</h3>
+                <button class="modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="tag-edit-form">
+                    <div class="form-group">
+                        <label for="tag-label-input">Label:</label>
+                        <input type="text" id="tag-label-input" name="label" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="tag-color-input">Color:</label>
+                        <input type="color" id="tag-color-input" name="color" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="tag-edit-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" form="tag-edit-form" id="tag-edit-save-btn" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Group Edit Dialog -->
+    <div id="group-edit-dialog" class="modal hidden">
+        <div class="modal-content group-edit-modal-content">
+            <div class="modal-header">
+                <h3 id="group-edit-dialog-title">Add Group</h3>
+                <button class="modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="group-edit-form">
+                    <div class="form-group">
+                        <label for="group-name-input">Name:</label>
+                        <input type="text" id="group-name-input" name="name" required placeholder="Group name">
+                    </div>
+                    <div class="form-group">
+                        <label for="group-color-input">Color:</label>
+                        <input type="color" id="group-color-input" name="color" value="#3498db">
+                    </div>
+                    <fieldset class="form-group group-rule-fieldset">
+                        <legend>Rule (optional)</legend>
+                        <div class="group-rule-row">
+                            <label for="group-rule-field">Field:</label>
+                            <select id="group-rule-field">
+                                <option value="">(none)</option>
+                            </select>
+                        </div>
+                        <div class="group-rule-row">
+                            <label for="group-rule-operator">Operator:</label>
+                            <select id="group-rule-operator">
+                                <option value="equals">equals</option>
+                                <option value="not-equals">not equals</option>
+                                <option value="contains">contains</option>
+                                <option value="is-empty">is empty</option>
+                                <option value="is-not-empty">is not empty</option>
+                            </select>
+                        </div>
+                        <div class="group-rule-row" id="group-rule-values-row">
+                            <label for="group-rule-values">Values:</label>
+                            <input type="text" id="group-rule-values" placeholder="Comma-separated values">
+                        </div>
+                    </fieldset>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="group-edit-delete-btn" class="btn btn-danger hidden">Delete</button>
+                <div class="modal-footer-spacer"></div>
+                <button type="button" id="group-edit-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" form="group-edit-form" id="group-edit-save-btn" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Setup Dialog -->
+    <div id="filter-setup-dialog" class="modal hidden">
+        <div class="modal-content filter-setup-modal-content">
+            <div class="modal-header">
+                <h3>Setup Filter</h3>
+                <button class="modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="filter-setup-description">Select the displayed fields that should become filters for this item.</p>
+                <form id="filter-setup-form">
+                    <div id="filter-setup-fields" class="filter-setup-fields"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="filter-setup-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" form="filter-setup-form" id="filter-setup-apply-btn" class="btn btn-primary">Apply Filters</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Details Side Panel (multi-mode) -->
+    <div id="details-panel" class="details-panel hidden">
+        <div class="details-panel-header">
+            <div class="details-panel-header-info">
+                <div class="details-panel-title"></div>
+                <div class="details-panel-subtitle"></div>
+            </div>
+            <div class="details-panel-header-actions">
+                <button class="details-panel-focus-btn" id="details-panel-focus-btn" title="Focus on this item's relations">🔍 Focus</button>
+                <button class="details-panel-close" aria-label="Close">×</button>
+            </div>
+        </div>
+
+        <!-- Mode: Card Editor -->
+        <div id="details-mode-editor" class="details-mode hidden">
+            <div class="details-editor-fields"></div>
+            <div class="details-editor-groups"></div>
+            <div class="details-editor-actions">
+                <button id="details-editor-save" class="btn btn-primary">Save</button>
+                <button id="details-editor-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Mode: Relations (existing relation panel content) -->
+        <div id="details-mode-relations" class="details-mode hidden">
+            <div class="relation-panel-details"></div>
+            <div class="relation-panel-sections"></div>
+            <div class="relation-panel-footer">
+                <button id="relation-add-btn" class="btn btn-secondary">+ Add Relation</button>
+                <div id="relation-add-form" class="relation-add-form hidden">
+                    <div class="form-group">
+                        <label for="relation-type-select">Type:</label>
+                        <select id="relation-type-select"></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="relation-target-search">Target:</label>
+                        <input type="text" id="relation-target-search" placeholder="Search by title or ID..." autocomplete="off">
+                        <div id="relation-target-results" class="relation-target-results"></div>
+                    </div>
+                    <div class="relation-add-actions">
+                        <button id="relation-add-cancel" class="btn btn-secondary">Cancel</button>
+                        <button id="relation-add-submit" class="btn btn-primary">Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mode: Header Values Editor -->
+        <div id="details-mode-header-values" class="details-mode hidden">
+            <div class="header-values-list"></div>
+            <div class="header-values-add">
+                <input type="text" id="header-value-new-input" placeholder="Add new value..." autocomplete="off">
+                <button id="header-value-add-btn" class="btn btn-secondary btn-sm">+ Add</button>
+            </div>
+            <div class="details-editor-actions">
+                <button id="header-values-save" class="btn btn-primary">Save</button>
+                <button id="header-values-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Mode: Markdown View -->
+        <div id="details-mode-markdown" class="details-mode hidden">
+            <div class="markdown-editor-container">
+                <textarea id="markdown-easymde"></textarea>
+            </div>
+            <div class="details-editor-actions markdown-save-actions">
+                <button id="markdown-save-btn" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+
+        <!-- Mode tabs (at bottom) -->
+        <div class="details-panel-tabs">
+            <button class="details-tab" data-mode="editor" title="Card Data">📝 Data</button>
+            <button class="details-tab" data-mode="relations" title="Relationship">🔗 Relationship</button>
+            <button class="details-tab" data-mode="markdown" title="Markdown">📄 Markdown</button>
+        </div>
+    </div>
+
+    <!-- Focus Mode Controls -->
+    <div id="focus-controls" class="focus-controls hidden">
+        <span class="focus-controls-label">Focus Mode</span>
+        <button id="focus-exit-btn" class="btn btn-secondary btn-sm">Exit Focus</button>
+        <label for="focus-depth-select">Depth:</label>
+        <select id="focus-depth-select" class="focus-depth-select">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+        </select>
+        <span class="focus-types-group">
+            <label><input type="checkbox" class="focus-type-checkbox" value="parent" checked> parent</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="child" checked> child</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="blocks" checked> blocks</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="blockedBy" checked> blockedBy</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="relatesTo" checked> related</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="epic" checked> epic</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="subtask" checked> subtask</label>
+            <label><input type="checkbox" class="focus-type-checkbox" value="duplicates" checked> duplicates</label>
+        </span>
+    </div>
+
+    <!-- Card Template (hidden, used for cloning) -->
+    <template id="card-template">
+        <div class="card" draggable="true">
+            <div class="card-top-left"></div>
+            <div class="card-top-right"></div>
+            <div class="card-title"></div>
+            <div class="card-badges"></div>
+            <div class="card-bottom-right"></div>
+            <div class="card-actions">
+                <button class="card-action-btn comments-btn" title="Comments">💬</button>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Slicer Template -->
+    <template id="slicer-template">
+        <div class="slicer">
+            <button type="button" class="slicer-toggle" aria-expanded="false">
+                <span class="slicer-toggle-text">
+                    <span class="slicer-title"></span>
+                    <span class="slicer-summary"></span>
+                </span>
+                <span class="slicer-toggle-icon" aria-hidden="true">▾</span>
+            </button>
+            <div class="slicer-panel">
+                <div class="slicer-options">
+                    <!-- Checkboxes populated dynamically -->
+                </div>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Tag Template -->
+    <template id="tag-template">
+        <div class="tag" draggable="true">
+            <span class="tag-label"></span>
+        </div>
+    </template>
+
+    <!-- JavaScript Files -->
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="file-service.js"></script>
+    <script src="app.js"></script>
+    <script src="controls.js"></script>
+    <script src="interactions.js"></script>
+    <script src="persistence.js"></script>
+    <script src="advanced-features.js"></script>
+    <script src="details-panel.js"></script>
+    <script src="relations.js"></script>
+    
+    <!-- Hidden File Inputs -->
+
+</body>
+</html>

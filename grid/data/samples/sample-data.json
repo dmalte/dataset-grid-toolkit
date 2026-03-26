@@ -1,0 +1,214 @@
+{
+  "data": [
+    {
+      "id": "HOME-001",
+      "title": "Build seed trays",
+      "status": "In Progress",
+      "category": "Gardening",
+      "owner": "Avery",
+      "effort": 5,
+      "tags": [
+        "outdoor",
+        "weekend"
+      ],
+      "dueDate": "2026-04-05",
+      "comments": {
+        "threads": [
+          {
+            "id": "t1",
+            "messages": [
+              {
+                "author": "Avery",
+                "timestamp": "2026-03-22T09:30:00Z",
+                "text": "Started cutting the boards"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "HOME-002",
+      "title": "Plan picnic menu",
+      "status": "Planned",
+      "category": "Cooking",
+      "owner": "Jordan",
+      "effort": 2,
+      "tags": [
+        "food",
+        "friends"
+      ],
+      "dueDate": "2026-04-09",
+      "comments": {
+        "threads": []
+      }
+    },
+    {
+      "id": "HOME-003",
+      "title": "Tune guitar pedals",
+      "status": "Done",
+      "category": "Music",
+      "owner": "Avery",
+      "effort": 3,
+      "tags": [
+        "studio",
+        "audio"
+      ],
+      "dueDate": "2026-03-20",
+      "comments": {
+        "threads": [
+          {
+            "id": "t2",
+            "messages": [
+              {
+                "author": "Avery",
+                "timestamp": "2026-03-20T20:15:00Z",
+                "text": "Noise issue resolved"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "HOME-004",
+      "title": "Map neighborhood walk",
+      "status": "In Progress",
+      "category": "Fitness",
+      "owner": "Morgan",
+      "effort": 4,
+      "tags": [
+        "health",
+        "outdoors"
+      ],
+      "dueDate": "2026-04-02",
+      "comments": {
+        "threads": []
+      }
+    },
+    {
+      "id": "HOME-005",
+      "title": "Sort photo prints",
+      "status": "Planned",
+      "category": "Memory Keeping",
+      "owner": "Taylor",
+      "effort": 3,
+      "tags": [
+        "archive",
+        "family"
+      ],
+      "dueDate": "2026-04-12",
+      "comments": {
+        "threads": []
+      }
+    },
+    {
+      "id": "HOME-006",
+      "title": "Refresh balcony lights",
+      "status": "Done",
+      "category": "Home Setup",
+      "owner": "Jordan",
+      "effort": 2,
+      "tags": [
+        "indoor",
+        "weekend"
+      ],
+      "dueDate": "2026-03-18",
+      "comments": {
+        "threads": []
+      }
+    }
+  ],
+  "schema": {
+    "fields": {
+      "id": {
+        "type": "scalar",
+        "required": true
+      },
+      "title": {
+        "type": "scalar",
+        "required": true
+      },
+      "status": {
+        "type": "scalar",
+        "required": false
+      },
+      "category": {
+        "type": "scalar",
+        "required": false
+      },
+      "owner": {
+        "type": "scalar",
+        "required": false
+      },
+      "effort": {
+        "type": "scalar",
+        "required": false
+      },
+      "tags": {
+        "type": "multi-value",
+        "required": false
+      },
+      "dueDate": {
+        "type": "scalar",
+        "required": false
+      },
+      "comments": {
+        "type": "structured",
+        "required": false
+      }
+    }
+  },
+  "view": {
+    "axisSelections": {
+      "x": "status",
+      "y": "category",
+      "title": "title",
+      "topLeft": "owner",
+      "topRight": "tags",
+      "bottomRight": "effort"
+    },
+    "tagCustomizations": {
+      "outdoor": {
+        "label": "Outdoor",
+        "color": "#2e8b57"
+      },
+      "weekend": {
+        "label": "Weekend",
+        "color": "#c9771a"
+      },
+      "food": {
+        "label": "Food",
+        "color": "#d1495b"
+      },
+      "friends": {
+        "label": "Friends",
+        "color": "#6c5ce7"
+      },
+      "studio": {
+        "label": "Studio",
+        "color": "#3b82f6"
+      },
+      "audio": {
+        "label": "Audio",
+        "color": "#0f766e"
+      },
+      "health": {
+        "label": "Health",
+        "color": "#15803d"
+      },
+      "archive": {
+        "label": "Archive",
+        "color": "#6b7280"
+      },
+      "family": {
+        "label": "Family",
+        "color": "#b45309"
+      },
+      "indoor": {
+        "label": "Indoor",
+        "color": "#7c3aed"
+      }
+    }
+  }
+}

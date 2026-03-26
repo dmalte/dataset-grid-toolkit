@@ -1,0 +1,23 @@
+[project]
+name = "data2json-converters"
+version = "0.1.0"
+description = "Standalone Excel and JSON dataset converters for the visualization tools workspace"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1,<4",
+    "PyQt6>=6.7,<7",
+]
+
+[project.scripts]
+excel-to-json = "data2json_converters.cli:excel_to_json_main"
+json-to-excel = "data2json_converters.cli:json_to_excel_main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
