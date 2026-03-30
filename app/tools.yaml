@@ -293,4 +293,84 @@ tools:
         kind: obsidian-cli-converted
       success_message: "Changes written to Obsidian vault"
 
- 
+  # ──────────────────────── Jira ────────────────────────
+
+  jira-to-json:
+    label: "Load Jira"
+    description: "Fetch Jira issues and load them as a grid JSON dataset"
+    ui:
+      order: 50
+      tab: "Jira"
+      group: "Import"
+    controls:
+      - id: run
+        type: action_button
+        label: "Load from Jira"
+    paths:
+      temp_dir: ".temp"
+    command:
+      executable: jira2json
+      args:
+        - "export-grid"
+        - "--output"
+        - "${outputs.json_file}"
+    result:
+      outputs:
+        json_file: "${paths.temp_dir}/jira_${now:%Y-%m-%d_%H-%M-%S}.json"
+      auto_load: true
+      track_source:
+        kind: jira-cli-converted
+
+  json-to-jira-review:
+    label: "Review -> Jira"
+    description: "Review pending grid changes and selectively push approved rows back to Jira"
+    type: interactive
+    requires:
+      - dataset
+    ui:
+      order: 51
+      tab: "Jira"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: run
+        type: action_button
+        label: "Review -> Jira"
+    command:
+      executable: jira2json
+      args:
+        - "import-grid"
+        - "--input"
+        - "${dataset_path}"
+        - "--confirm"
+    result:
+      save_before_run: true
+      success_message: "Review complete — approved changes pushed to Jira"
+
+  json-to-jira-save:
+    label: "Save to Jira"
+    description: "Push pending grid changes back to Jira"
+    requires:
+      - dataset
+    ui:
+      order: 52
+      tab: "Jira"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: run
+        type: action_button
+        label: "Save to Jira"
+    command:
+      executable: jira2json
+      args:
+        - "import-grid"
+        - "--input"
+        - "${dataset_path}"
+    result:
+      save_before_run: true
+      success_message: "Changes pushed to Jira"
