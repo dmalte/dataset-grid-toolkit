@@ -10,10 +10,6 @@ class ControlPanelManager {
         this.tagDialogMode = 'edit';
         this.openSlicerField = null;
         this.slicerSearchTerms = new Map();
-        this.layoutPanels = {
-            card: true,
-            table: true
-        };
         this.draggedTagName = null;
         this.draggedGroupId = null;
         this.initializeEventListeners();
@@ -67,12 +63,12 @@ class ControlPanelManager {
             this.updateSlicerAxisShading();
         });
 
-        document.getElementById('card-layout-toggle').addEventListener('click', () => {
-            this.toggleModeConfigPanel('card');
+        document.getElementById('card-mode-tab').addEventListener('click', () => {
+            this.setLayoutMode('cards');
         });
 
-        document.getElementById('table-layout-toggle').addEventListener('click', () => {
-            this.toggleModeConfigPanel('table');
+        document.getElementById('table-mode-tab').addEventListener('click', () => {
+            this.setLayoutMode('table');
         });
 
         document.getElementById('table-columns-add-btn').addEventListener('click', () => {
@@ -141,6 +137,19 @@ class ControlPanelManager {
             });
             this.app.persistenceManager.saveDataFile();
         });
+
+        document.getElementById('promote-data-btn').addEventListener('click', () => {
+            this.app.persistenceManager.fileService.debugLog('promote changes button clicked', {
+                action: 'promote-save',
+                type: 'data',
+                userScope: this.app.persistenceManager.fileService.getCurrentUserScope(),
+                suggestedFilename: this.app.persistenceManager.fileService.getSuggestedFilename(
+                    'data',
+                    this.app.persistenceManager.fileService.generateDataFilename(this.app.dataset.length)
+                )
+            });
+            this.app.persistenceManager.saveDataFile({ promoteChanges: true });
+        });
         
         document.getElementById('export-filtered-btn').addEventListener('click', () => {
             this.app.persistenceManager.fileService.debugLog('export button clicked', {
@@ -154,10 +163,34 @@ class ControlPanelManager {
         
         // View configuration controls
         document.getElementById('load-view-btn').addEventListener('click', () => {
+            this.app.persistenceManager.fileService.debugLog('load view button clicked', {
+                action: 'load',
+                type: 'view',
+                serverMode: Boolean(this.app.isServerMode),
+                currentDataset: this.app.serverControlsManager && this.app.serverControlsManager.currentDataset
+                    ? this.app.serverControlsManager.currentDataset.filename
+                    : null,
+            });
+            if (this.app.isServerMode && this.app.serverControlsManager && typeof this.app.serverControlsManager.openResolvedViewConfiguration === 'function') {
+                void this.app.serverControlsManager.openResolvedViewConfiguration();
+                return;
+            }
             this.app.persistenceManager.openViewFile();
         });
         
         document.getElementById('save-view-btn').addEventListener('click', () => {
+            this.app.persistenceManager.fileService.debugLog('save view button clicked', {
+                action: 'save',
+                type: 'view',
+                serverMode: Boolean(this.app.isServerMode),
+                currentDataset: this.app.serverControlsManager && this.app.serverControlsManager.currentDataset
+                    ? this.app.serverControlsManager.currentDataset.filename
+                    : null,
+            });
+            if (this.app.isServerMode && this.app.serverControlsManager && typeof this.app.serverControlsManager.saveResolvedViewConfiguration === 'function') {
+                void this.app.serverControlsManager.saveResolvedViewConfiguration();
+                return;
+            }
             this.app.persistenceManager.saveViewConfiguration();
         });
 
@@ -192,14 +225,6 @@ class ControlPanelManager {
             this.app.updateViewConfiguration();
             this.app.renderGrid();
         });
-        document.getElementById('table-mode-cb').addEventListener('change', (e) => {
-            this.app.cellRenderMode = e.target.checked ? 'table' : 'cards';
-            this.app.updateViewConfiguration();
-            this.syncModeConfigurationVisibility();
-            this.app.renderGrid();
-            this.updateSlicerAxisShading();
-        });
-
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.slicer')) {
                 this.closeAllSlicers();
@@ -600,34 +625,47 @@ class ControlPanelManager {
         this.app.renderGrid();
     }
 
-    toggleModeConfigPanel(panelName) {
-        if (!Object.prototype.hasOwnProperty.call(this.layoutPanels, panelName)) {
+    setLayoutMode(mode) {
+        const normalizedMode = mode === 'table' ? 'table' : 'cards';
+        if (this.app.cellRenderMode === normalizedMode) {
+            this.syncModeConfigurationVisibility();
             return;
         }
 
-        this.layoutPanels[panelName] = !this.layoutPanels[panelName];
+        this.app.cellRenderMode = normalizedMode;
+        this.app.updateViewConfiguration();
         this.syncModeConfigurationVisibility();
+        this.app.renderGrid();
+        this.updateSlicerAxisShading();
     }
 
     syncModeConfigurationVisibility() {
-        this.applyModeConfigurationState('card', this.app.cellRenderMode !== 'table');
-        this.applyModeConfigurationState('table', this.app.cellRenderMode === 'table');
+        const isTableMode = this.app.cellRenderMode === 'table';
+        this.applyModeConfigurationState('card', !isTableMode);
+        this.applyModeConfigurationState('table', isTableMode);
+
+        const cardTab = document.getElementById('card-mode-tab');
+        const tableTab = document.getElementById('table-mode-tab');
+        if (cardTab) {
+            cardTab.classList.toggle('is-active', !isTableMode);
+            cardTab.setAttribute('aria-selected', String(!isTableMode));
+        }
+        if (tableTab) {
+            tableTab.classList.toggle('is-active', isTableMode);
+            tableTab.setAttribute('aria-selected', String(isTableMode));
+        }
     }
 
     applyModeConfigurationState(panelName, isVisible) {
         const section = document.getElementById(`${panelName}-layout-section`);
         const panel = document.getElementById(`${panelName}-layout-panel`);
-        const toggle = document.getElementById(`${panelName}-layout-toggle`);
-        const isExpanded = this.layoutPanels[panelName] !== false;
 
-        if (!section || !panel || !toggle) {
+        if (!section || !panel) {
             return;
         }
 
         section.classList.toggle('hidden', !isVisible);
-        section.classList.toggle('is-collapsed', !isExpanded);
-        panel.classList.toggle('hidden', !isExpanded);
-        toggle.setAttribute('aria-expanded', String(isExpanded));
+        panel.classList.toggle('hidden', !isVisible);
     }
     
     // ===== SLICER MANAGEMENT =====
@@ -752,6 +790,16 @@ class ControlPanelManager {
             e.stopPropagation();
             this.toggleSlicer(fieldName);
         });
+        slicer.addEventListener('contextmenu', (event) => {
+            if (event.target.closest('.slicer-search-input') || event.target.closest('.slicer-control-btn')) {
+                return;
+            }
+
+            if (this.openFieldValueEditor(fieldName)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
         
         // Add "select all" / "clear all" controls
         this.addSlicerControls(optionsContainer, fieldName);
@@ -796,7 +844,9 @@ class ControlPanelManager {
             option.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                this.applyExclusiveSlicerFilter(fieldName, value);
+                if (event.shiftKey || !this.openFieldValueEditor(fieldName, value)) {
+                    this.applyExclusiveSlicerFilter(fieldName, value);
+                }
             });
         });
 
@@ -828,7 +878,9 @@ class ControlPanelManager {
             option.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                this.applyExclusiveSlicerFilter(fieldName, '_none');
+                if (event.shiftKey || !this.openFieldValueEditor(fieldName, '_none')) {
+                    this.applyExclusiveSlicerFilter(fieldName, '_none');
+                }
             });
         }
 
@@ -1022,6 +1074,20 @@ class ControlPanelManager {
         this.app.updateViewConfiguration();
         this.renderSlicers();
         this.app.showNotification(`Filtered ${fieldName} to ${filterValue === '' ? '(none)' : filterValue}`, 'success');
+    }
+
+    openFieldValueEditor(fieldName, contextValue = null) {
+        if (!fieldName || !this.app.detailsPanelManager) {
+            return false;
+        }
+
+        if (typeof this.app.isTagFieldName === 'function' && this.app.isTagFieldName(fieldName)) {
+            return false;
+        }
+
+        const headerValue = contextValue === '_none' ? '' : contextValue;
+        this.app.detailsPanelManager.openForHeader(fieldName, 'filter', headerValue);
+        return true;
     }
 
     createGroupSlicer(container) {
@@ -1319,6 +1385,7 @@ class ControlPanelManager {
     updateFileActionState(status = {}) {
         const reloadButton = document.getElementById('reload-data-btn');
         const saveDataButton = document.getElementById('save-data-btn');
+        const promoteDataButton = document.getElementById('promote-data-btn');
         const saveViewButton = document.getElementById('save-view-btn');
 
         if (reloadButton) {
@@ -1340,6 +1407,12 @@ class ControlPanelManager {
             saveDataButton.title = status.supportsSavePicker
                 ? 'Save to the current file or choose a file with the browser save picker'
                 : 'Download the current dataset as a JSON file';
+        }
+
+        if (promoteDataButton) {
+            promoteDataButton.title = status.supportsSavePicker
+                ? 'Save the effective dataset as baseline data and clear pending changes'
+                : 'Download the effective dataset as baseline data and clear pending changes';
         }
 
         if (saveViewButton) {
@@ -1828,28 +1901,48 @@ ControlPanelManager.prototype.initializeGroupEditDialog = function() {
     });
 };
 
-ControlPanelManager.prototype.populateGroupRuleFieldOptions = function() {
+ControlPanelManager.prototype.populateGroupRuleFieldOptions = function(preferredField = null) {
     const fieldSelect = document.getElementById('group-rule-field');
     if (!fieldSelect) return;
 
     // Preserve current selection
-    const current = fieldSelect.value;
+    const current = preferredField || fieldSelect.value;
     fieldSelect.innerHTML = '<option value="">(none)</option>';
 
-    // Add _hasChanges virtual field
-    const hasChangesOpt = document.createElement('option');
-    hasChangesOpt.value = '_hasChanges';
-    hasChangesOpt.textContent = '(has changes)';
-    fieldSelect.appendChild(hasChangesOpt);
+    const addedFields = new Set(['']);
+    const appendFieldOption = (fieldName, label = fieldName) => {
+        if (typeof fieldName !== 'string') {
+            return;
+        }
 
-    // Add all available fields
-    const fields = this.app.availableFields || [];
-    fields.forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f;
-        opt.textContent = f;
-        fieldSelect.appendChild(opt);
+        const normalizedFieldName = fieldName.trim();
+        if (!normalizedFieldName || addedFields.has(normalizedFieldName)) {
+            return;
+        }
+
+        const option = document.createElement('option');
+        option.value = normalizedFieldName;
+        option.textContent = label;
+        fieldSelect.appendChild(option);
+        addedFields.add(normalizedFieldName);
+    };
+
+    // Add _hasChanges virtual field
+    appendFieldOption('_hasChanges', '(has changes)');
+
+    // Group rules can target any non-structured field, even if it is hidden from selectors.
+    const typedFields = this.app.fieldTypes instanceof Map
+        ? Array.from(this.app.fieldTypes.entries())
+            .filter(([, fieldType]) => fieldType === 'scalar' || fieldType === 'multi-value')
+            .map(([fieldName]) => fieldName)
+        : [];
+    const fields = Array.from(new Set([...(this.app.availableFields || []), ...typedFields]));
+    fields.forEach((fieldName) => {
+        appendFieldOption(fieldName);
     });
+
+    // Keep loading/editing robust for older views whose rule field is not in the current dataset metadata.
+    appendFieldOption(current);
 
     // Restore selection if still valid
     if (current && fieldSelect.querySelector(`option[value="${CSS.escape(current)}"]`)) {
@@ -1870,7 +1963,7 @@ ControlPanelManager.prototype.openGroupEditDialog = function(group) {
     const valuesRow = document.getElementById('group-rule-values-row');
     const deleteBtn = document.getElementById('group-edit-delete-btn');
 
-    this.populateGroupRuleFieldOptions();
+    this.populateGroupRuleFieldOptions(group && group.rule ? group.rule.field : null);
 
     if (group) {
         title.textContent = 'Edit Group';

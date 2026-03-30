@@ -128,51 +128,28 @@ class AdvancedFeaturesManager {
     }
     
     getItemComments(item) {
-        if (item.comments && Array.isArray(item.comments)) {
-            return item.comments;
-        }
-        
-        // Check if comments are in a different structure
-        if (item.comment && typeof item.comment === 'object') {
-            if (item.comment.threads && Array.isArray(item.comment.threads)) {
-                // Flatten threads → messages into a flat comment list
-                const flat = [];
-                item.comment.threads.forEach(thread => {
-                    if (Array.isArray(thread.messages)) {
-                        thread.messages.forEach(msg => {
-                            flat.push({
-                                id: msg.id || thread.id,
-                                author: msg.author || 'User',
-                                message: msg.text || msg.message || '',
-                                timestamp: msg.timestamp,
-                                replies: []
-                            });
-                        });
-                    } else {
-                        // Thread itself is a comment
-                        flat.push({
-                            id: thread.id,
-                            author: thread.author || 'User',
-                            message: thread.message || thread.text || '',
-                            timestamp: thread.timestamp,
-                            replies: Array.isArray(thread.replies) ? thread.replies.map(r => ({
-                                author: r.author || 'User',
-                                message: r.text || r.message || '',
-                                timestamp: r.timestamp
-                            })) : []
-                        });
-                    }
+        const commentThreads = typeof this.app.getItemCommentThreads === 'function'
+            ? this.app.getItemCommentThreads(item)
+            : null;
+
+        if (commentThreads && Array.isArray(commentThreads.threads)) {
+            const flat = [];
+            commentThreads.threads.forEach((thread) => {
+                if (!thread || !Array.isArray(thread.messages)) {
+                    return;
+                }
+
+                thread.messages.forEach((message, index) => {
+                    flat.push({
+                        id: message.id || `${thread.id || 'comment'}-${index + 1}`,
+                        author: message.author || 'User',
+                        message: message.text || message.message || '',
+                        timestamp: message.timestamp,
+                        replies: []
+                    });
                 });
-                return flat;
-            }
-            // Convert single comment to thread format
-            return [{
-                id: 'comment-1',
-                message: item.comment.message || item.comment.text || String(item.comment),
-                author: item.comment.author || 'User',
-                timestamp: item.comment.timestamp || window.GridDateUtils.createLocalTimestamp(),
-                replies: item.comment.replies || []
-            }];
+            });
+            return flat;
         }
         
         return [];
@@ -275,25 +252,8 @@ class AdvancedFeaturesManager {
     
     formatTimestamp(timestamp) {
         if (!timestamp) return 'Unknown';
-        
-        try {
-            const date = new Date(timestamp);
-            const now = new Date();
-            const diffMs = now - date;
-            const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-            
-            if (diffDays === 0) {
-                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            } else if (diffDays === 1) {
-                return 'Yesterday';
-            } else if (diffDays < 7) {
-                return `${diffDays} days ago`;
-            } else {
-                return date.toLocaleDateString();
-            }
-        } catch (error) {
-            return 'Invalid date';
-        }
+
+        return window.GridDateUtils.normalizeDateStamp(timestamp, String(timestamp));
     }
     
     addComment() {
@@ -316,12 +276,25 @@ class AdvancedFeaturesManager {
             replies: []
         };
         
-        // Add comment to item
-        if (!this.currentCommentsItem.comments) {
-            this.currentCommentsItem.comments = [];
-        }
-        
-        this.currentCommentsItem.comments.push(newComment);
+        const existingCommentThreads = typeof this.app.getItemCommentThreads === 'function'
+            ? this.app.getItemCommentThreads(this.currentCommentsItem)
+            : null;
+        const nextCommentThreads = existingCommentThreads && Array.isArray(existingCommentThreads.threads)
+            ? this.app.cloneValue(existingCommentThreads)
+            : { threads: [] };
+
+        nextCommentThreads.threads.push({
+            id: newComment.id,
+            messages: [{
+                id: newComment.id,
+                author: newComment.author,
+                timestamp: newComment.timestamp,
+                text: newComment.message
+            }]
+        });
+
+        this.currentCommentsItem.comment = nextCommentThreads;
+        delete this.currentCommentsItem.comments;
         
         // Clear input
         messageInput.value = '';
@@ -331,7 +304,7 @@ class AdvancedFeaturesManager {
         
         // Update the item in the dataset
         this.app.updateItem(this.app.getItemIdentity(this.currentCommentsItem) || this.currentCommentsItem.id, {
-            comments: this.currentCommentsItem.comments
+            comment: nextCommentThreads
         });
         
         this.app.showNotification('Comment added', 'success');

@@ -1,0 +1,296 @@
+# Declarative tool definitions for the Data Visualization Grid.
+#
+# Each tool describes a CLI operation with:
+#   - UI controls (rendered in the desktop Tools panel)
+#   - Command template (executable + arg list with ${...} expressions)
+#   - Result handling (auto-load dataset, track source, etc.)
+#
+# Template expressions:
+#   ${now:%Y-%m-%d_%H-%M-%S}   — formatted current datetime
+#   ${defaults.<key>}          — value from the defaults section
+#   ${settings.<key>}          — value from the settings section (persisted)
+#   ${<control_id>}            — resolved value of a control
+#   ${<control_id>.stem}       — Path stem of a file control value
+#   ${<control_id>.name}       — Path name of a file control value
+#   ${paths.<key>}             — value from the tool's paths section
+#   ${outputs.<key>}           — resolved output value (for use in args)
+#
+# Control types:
+#   file_picker   — native file-open dialog (filters, persist)
+#   text_input    — free text with default/placeholder
+#   select        — dropdown with choices
+#   hidden        — not rendered; value from source (default, setting,
+#                   current-dataset, tracked-source, source-info)
+#   action_button — triggers tool execution (one per tool)
+#
+# Tool types:
+#   (default)     — non-interactive: subprocess.run, blocks until done
+#   interactive   — stdin/stdout piped: QProcess with console Yes/No buttons
+
+version: 1
+
+defaults:
+  sheet: data
+
+settings:
+  obsidian_config:
+    label: "Obsidian Config"
+    type: path
+    persist: true
+    placeholder: "C:/path/to/.item_manager_config.yaml"
+    tab: "Obsidian"
+
+tools:
+
+  # ──────────────────────── Excel ────────────────────────
+
+  excel-to-json:
+    label: "Convert Excel"
+    description: "Convert a local Excel workbook to JSON and load it into the grid"
+    ui:
+      order: 10
+      tab: "Excel"
+      group: "Import"
+    controls:
+      - id: excel_file
+        type: file_picker
+        label: "Excel file"
+        mode: open
+        filters: ".xlsx,.xls"
+        persist: true
+        required: true
+      - id: sheet_name
+        type: text_input
+        label: "Worksheet"
+        default: "${defaults.sheet}"
+        placeholder: "data"
+      - id: run
+        type: action_button
+        label: "Convert to JSON"
+    paths:
+      temp_dir: ".temp"
+    command:
+      executable: excel-to-json
+      args:
+        - "--excel"
+        - "${excel_file}"
+        - "--json"
+        - "${outputs.json_file}"
+        - "--sheet"
+        - "${sheet_name}"
+    result:
+      outputs:
+        json_file: "${paths.temp_dir}/data_${now:%Y-%m-%d_%H-%M-%S}.json"
+      auto_load: true
+      track_source:
+        from: excel_file
+        kind: excel-cli-converted
+        sheet_key: sheet_name
+
+  json-to-excel-review:
+    label: "Review -> Excel"
+    description: "Review pending changes and write approved rows back to the tracked Excel workbook"
+    type: interactive
+    requires:
+      - dataset
+      - source_excel
+    ui:
+      order: 11
+      tab: "Excel"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: source_excel
+        type: hidden
+        source: tracked-source
+        source_key: source_path
+      - id: sheet_name
+        type: hidden
+        source: source-info
+        source_key: sheet
+        fallback: "${defaults.sheet}"
+      - id: run
+        type: action_button
+        label: "Review -> Excel"
+    command:
+      executable: json-to-excel
+      args:
+        - "--json"
+        - "${dataset_path}"
+        - "--excel"
+        - "${source_excel}"
+        - "--sheet"
+        - "${sheet_name}"
+        - "--mode"
+        - "confirm-cli"
+    result:
+      save_before_run: true
+      promote_after: true
+      success_message: "Review complete — changes written to Excel and promoted"
+
+  json-to-excel-save:
+    label: "Save to Excel"
+    description: "Write pending changes directly to the tracked Excel workbook"
+    requires:
+      - dataset
+      - source_excel
+    ui:
+      order: 12
+      tab: "Excel"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: source_excel
+        type: hidden
+        source: tracked-source
+        source_key: source_path
+      - id: sheet_name
+        type: hidden
+        source: source-info
+        source_key: sheet
+        fallback: "${defaults.sheet}"
+      - id: run
+        type: action_button
+        label: "Save to Excel"
+    command:
+      executable: json-to-excel
+      args:
+        - "--json"
+        - "${dataset_path}"
+        - "--excel"
+        - "${source_excel}"
+        - "--sheet"
+        - "${sheet_name}"
+        - "--mode"
+        - "changes"
+    result:
+      save_before_run: true
+      promote_after: true
+      success_message: "Changes written to the tracked workbook and promoted"
+
+  # ──────────────────────── Obsidian ────────────────────────
+
+  obsidian-to-json:
+    label: "Load Obsidian"
+    description: "Export managed Obsidian items to a grid JSON dataset and load it"
+    ui:
+      order: 40
+      tab: "Obsidian"
+      group: "Import"
+    controls:
+      - id: config_path
+        type: hidden
+        source: setting
+        setting_key: obsidian_config
+      - id: run
+        type: action_button
+        label: "Load from Obsidian"
+    paths:
+      temp_dir: ".temp"
+    command:
+      executable: obsidian2json
+      args:
+        - "--config"
+        - "${config_path}"
+        - "export-grid"
+        - "--output"
+        - "${outputs.json_file}"
+    result:
+      outputs:
+        json_file: "${paths.temp_dir}/obsidian_${now:%Y-%m-%d_%H-%M-%S}.json"
+      auto_load: true
+      track_source:
+        from: config_path
+        kind: obsidian-cli-converted
+
+  json-to-obsidian-review:
+    label: "Review -> Obsidian"
+    description: "Review pending grid changes and selectively write approved rows back to the Obsidian vault"
+    type: interactive
+    requires:
+      - dataset
+    ui:
+      order: 41
+      tab: "Obsidian"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: config_path
+        type: hidden
+        source: setting
+        setting_key: obsidian_config
+      - id: run
+        type: action_button
+        label: "Review -> Obsidian"
+    paths:
+      temp_dir: ".temp"
+    command:
+      executable: obsidian2json
+      args:
+        - "--config"
+        - "${config_path}"
+        - "import-grid"
+        - "--input"
+        - "${dataset_path}"
+        - "--confirm"
+        - "--reexport"
+        - "${outputs.json_file}"
+    result:
+      outputs:
+        json_file: "${paths.temp_dir}/obsidian_${now:%Y-%m-%d_%H-%M-%S}.json"
+      save_before_run: true
+      auto_load: true
+      track_source:
+        from: config_path
+        kind: obsidian-cli-converted
+      success_message: "Review complete — approved changes written to Obsidian"
+
+  json-to-obsidian-save:
+    label: "Save to Obsidian"
+    description: "Apply pending grid changes back to the Obsidian vault and refresh"
+    requires:
+      - dataset
+    ui:
+      order: 42
+      tab: "Obsidian"
+      group: "Export"
+    controls:
+      - id: dataset_path
+        type: hidden
+        source: current-dataset
+      - id: config_path
+        type: hidden
+        source: setting
+        setting_key: obsidian_config
+      - id: run
+        type: action_button
+        label: "Save to Obsidian"
+    paths:
+      temp_dir: ".temp"
+    command:
+      executable: obsidian2json
+      args:
+        - "--config"
+        - "${config_path}"
+        - "import-grid"
+        - "--input"
+        - "${dataset_path}"
+        - "--reexport"
+        - "${outputs.json_file}"
+    result:
+      outputs:
+        json_file: "${paths.temp_dir}/obsidian_${now:%Y-%m-%d_%H-%M-%S}.json"
+      save_before_run: true
+      auto_load: true
+      track_source:
+        from: config_path
+        kind: obsidian-cli-converted
+      success_message: "Changes written to Obsidian vault"
+
+ 

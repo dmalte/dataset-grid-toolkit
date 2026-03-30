@@ -2,143 +2,117 @@
 
 ## Overview
 
-This repository contains a lightweight toolkit for exploring and transforming structured datasets. It includes a browser-based grid app for viewing JSON data in configurable 2D layouts, and a Python converter package for moving data between Excel workbooks and the shared JSON dataset format.
-
-## Components
-
-- `grid/` - browser-based grid viewer with card and table modes, filters, tags, and pending-change support
-- `converters/` - Python CLI for Excel-to-JSON export and JSON-to-Excel restore, merge, and review flows
+This public bundle contains a browser-based grid UI, a PySide6 desktop shell, and Python CLI converters that all share the same JSON dataset format. It is intended for local exploration, lightweight editing, Excel round-tripping, and CLI-driven import/export workflows without shipping the internal server code.
 
 ## Features
 
-### Grid
+- Browser-based grid with card and table views, filters, sticky headers, and pending-change overlays
+- Native desktop shell with file dialogs and YAML-driven tool execution through local CLI entry points
+- Excel import and export via `excel-to-json` and `json-to-excel`
+- Obsidian import and export via `obsidian2json`
+- Sample JSON and Excel files for local testing
+- Exported bundle includes a generated `.gitignore`, bundle reports, and minimal package metadata
 
-- Card and table rendering modes
-- Sticky row and column headers
-- Per-field slicers with search
-- Tag display and simple grouping support
-- Pending-change overlay model for edits and creates
+## Architecture
 
-### Converters
+- `grid/src/`: vanilla JS/HTML/CSS frontend
+- `app/`: PySide6 desktop shell and QWebChannel bridge
+- `converters/src/data2json_converters/`: Excel/JSON conversion CLI
+- `converters/src/obsidian2json/`: Obsidian/grid JSON conversion CLI
+- `grid/data/samples/` and `converters/data/samples/`: generated public sample files
 
-- `excel-to-json` and `json-to-excel` CLI commands
-- Restore, merge, and review-oriented export modes
-- Structured field handling for comments and multi-value fields
-- Sample workbook and JSON files for local testing
-
-## Repository Contents
-
-- Core source files for both projects
-- Minimal package metadata and license files
-- Sample data for trying the grid and converter flows locally
+Data flow:
+- Load or generate JSON data
+- Explore and edit it in the grid
+- Keep proposed edits in `changes` until promotion or export
+- Write approved changes back to Excel or Obsidian through the CLI tools
 
 ## Installation
 
-### Grid
+Python 3.10+ is required.
 
-Open `grid/src/index.html` directly in a browser for basic local use. If browser file restrictions interfere with loading local JSON files, serve the repository through a small local HTTP server.
+Install the root package extras for the desktop shell:
 
-### Converters
+```bash
+pip install -e converters
+pip install -e ".[desktop]"
+```
+
+If you only need the converters:
 
 ```bash
 cd converters
 pip install -e .
 ```
 
-## Quick Start
+## Usage
 
-### Grid
-
-Open `grid/src/index.html` in a modern browser.
-
-Use `grid/data/samples/sample-data.json` for a small example dataset.
-
-### Converters
+Browser mode:
 
 ```bash
-cd converters
-excel-to-json --excel data/samples/sample-data.xlsx --json data/samples/sample-data.json --sheet data
-
-# Restore baseline rows into a workbook
-json-to-excel --mode restore --json data/samples/sample-data.json --excel restored.xlsx --sheet data
-
-# Apply pending changes from the dataset
-json-to-excel --mode changes --json data/samples/sample-data.json --excel updated.xlsx --sheet data
-
-# Review changes before applying them
-json-to-excel --mode confirm-html --json data/samples/sample-data.json --excel review.xlsx --sheet data
+python -m http.server 8000
 ```
 
-## JSON Format
+Then open `http://localhost:8000/grid/src/` and load `grid/data/samples/sample-data.json`.
 
-The shared dataset format is a JSON object with a top-level `data` array and optional `schema`, `view`, `meta`, and `changes` sections.
+Desktop mode:
 
-Simple example:
-
-```json
-{
-	"data": [
-		{
-			"id": "HOME-001",
-			"title": "Build seed trays",
-			"status": "In Progress",
-			"category": "Gardening",
-			"tags": ["outdoor", "weekend"]
-		}
-	],
-	"schema": {
-		"fields": {
-			"id": {"type": "scalar", "required": true},
-			"title": {"type": "scalar", "required": true},
-			"status": {"type": "scalar", "required": false},
-			"category": {"type": "scalar", "required": false},
-			"tags": {"type": "multi-value", "required": false}
-		}
-	},
-	"view": {
-		"axisSelections": {
-			"x": "status",
-			"y": "category",
-			"title": "title"
-		}
-	},
-	"meta": {
-		"datasetName": "Sample Planning Board"
-	},
-	"changes": {
-		"version": "1",
-		"rows": [
-			{
-				"changeId": "chg-001",
-				"action": "update",
-				"target": {
-					"itemId": "HOME-001"
-				},
-				"baseline": {
-					"status": "Planned"
-				},
-				"proposed": {
-					"status": "In Progress"
-				}
-			}
-		]
-	}
-}
+```bash
+python app/main.py
 ```
 
-Notes:
+On Windows you can also use:
 
-- `data` contains the baseline items rendered by the grid
-- `schema` can describe field types and constraints when needed
-- `view` stores UI state such as axis selections and other saved layout settings
-- `meta` stores lightweight dataset-level information
-- `changes` can store pending edits or creates without modifying the baseline rows
+```bash
+start-desktop.bat
+```
+
+Converter examples:
+
+```bash
+excel-to-json --excel converters/data/samples/sample-data.xlsx --json converters/data/samples/sample-data.json --sheet data
+
+json-to-excel --mode restore --json converters/data/samples/sample-data.json --excel restored.xlsx --sheet data
+
+json-to-excel --mode changes --json converters/data/samples/sample-data.json --excel updated.xlsx --sheet data
+
+json-to-excel --mode confirm-html --json converters/data/samples/sample-data.json --excel review.xlsx --sheet data
+```
+
+Desktop tools are declared in `app/tools.yaml`. The shipped configuration includes Excel and Obsidian actions and can be extended with additional CLI-backed tools by editing that YAML file.
+
+## Configuration
+
+- `app/tools.yaml`: desktop tool definitions, tabs, controls, commands, and result handling
+- `pyproject.toml`: optional dependency groups such as `desktop`
+- `grid/data/samples/` and `converters/data/samples/`: sample input/output locations used by the exported bundle
+
+The shared dataset format uses a top-level `data` array and may also include `schema`, `view`, `meta`, and `changes` sections. Pending edits remain in `changes` until promoted or written back through a converter.
 
 ## Development
 
-- Grid source: `grid/src/`
-- Converter source: `converters/src/data2json_converters/`
-- Export script: `tools/export_public_bundle.py`
+- Grid source lives in `grid/src/`
+- Desktop bridge and shell live in `app/`
+- Converter source lives in `converters/src/`
+- Public bundle export is produced by `tools/export_public_bundle.py`
+
+To regenerate a clean public bundle:
+
+```bash
+python tools/export_public_bundle.py D:/dev/_export/data-visualization-grid --force
+```
+
+## Limitations
+
+- This bundle does not include the internal FastAPI server mode
+- Desktop mode requires the local CLI entry points to be installed in the active Python environment
+- Some frontend libraries are still loaded from CDNs, so full offline use is not guaranteed
+
+## Roadmap
+
+- Vendor frontend CDN dependencies for stronger offline support
+- Unify all runtime modes around one YAML tool schema
+- Add richer long-running CLI progress and streaming output in desktop mode
 
 ## License
 

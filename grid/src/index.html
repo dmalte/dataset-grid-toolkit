@@ -63,119 +63,134 @@ SOFTWARE.
             </div>
 
             <div class="mode-configurations">
-                <section id="card-layout-section" class="mode-config-section">
-                    <button type="button" id="card-layout-toggle" class="mode-config-toggle" aria-expanded="true" aria-controls="card-layout-panel">
-                        <span>Card Layout</span>
-                        <span class="mode-config-toggle-icon" aria-hidden="true">▾</span>
-                    </button>
-                    <div id="card-layout-panel" class="mode-config-panel">
-                        <div class="field-selectors card-field-selectors">
-                            <div class="selector-group card-layout-top-left">
-                                <label for="top-left-select">Top-Left:</label>
-                                <select id="top-left-select" class="field-selector">
-                                    <option value="">Select field...</option>
-                                </select>
-                            </div>
-
-                            <div class="selector-group card-layout-top-right">
-                                <label for="top-right-select">Top-Right:</label>
-                                <select id="top-right-select" class="field-selector">
-                                    <option value="">Select field...</option>
-                                </select>
-                            </div>
-
-                            <div class="selector-group card-layout-title">
-                                <label for="title-select">Title:</label>
-                                <select id="title-select" class="field-selector">
-                                    <option value="">Select field...</option>
-                                </select>
-                            </div>
-
-                            <div class="selector-group card-layout-bottom-right">
-                                <label for="bottom-right-select">Bottom-Right:</label>
-                                <select id="bottom-right-select" class="field-selector">
-                                    <option value="">Select field...</option>
-                                </select>
-                            </div>
-                        </div>
+                <div class="mode-sidebar">
+                    <div class="mode-tabs" role="tablist" aria-label="Card and table layout modes">
+                        <button type="button" id="card-mode-tab" class="mode-tab-btn is-active" role="tab" aria-selected="true" aria-controls="card-layout-panel">Card</button>
+                        <button type="button" id="table-mode-tab" class="mode-tab-btn" role="tab" aria-selected="false" aria-controls="table-layout-panel">Table</button>
                     </div>
-                </section>
+                </div>
 
-                <section id="table-layout-section" class="mode-config-section hidden">
-                    <button type="button" id="table-layout-toggle" class="mode-config-toggle" aria-expanded="true" aria-controls="table-layout-panel">
-                        <span>Table Columns</span>
-                        <span class="mode-config-toggle-icon" aria-hidden="true">▾</span>
-                    </button>
-                    <div id="table-layout-panel" class="mode-config-panel">
-                        <div class="table-summary-controls">
-                            <label for="table-summary-mode-select">Table Summary</label>
-                            <select id="table-summary-mode-select" class="field-selector table-summary-mode-select">
-                                <option value="none">None</option>
-                                <option value="sum">Sum</option>
-                                <option value="average">Average</option>
-                                <option value="min">Min</option>
-                                <option value="max">Max</option>
-                            </select>
+                <div class="mode-panels">
+                    <section id="card-layout-section" class="mode-config-section">
+                        <div id="card-layout-panel" class="mode-config-panel">
+                            <div class="field-selectors card-field-selectors">
+                                <div class="selector-group card-layout-top-left">
+                                    <label for="top-left-select">Top-Left:</label>
+                                    <select id="top-left-select" class="field-selector">
+                                        <option value="">Select field...</option>
+                                    </select>
+                                </div>
+
+                                <div class="selector-group card-layout-top-right">
+                                    <label for="top-right-select">Top-Right:</label>
+                                    <select id="top-right-select" class="field-selector">
+                                        <option value="">Select field...</option>
+                                    </select>
+                                </div>
+
+                                <div class="selector-group card-layout-title">
+                                    <label for="title-select">Title:</label>
+                                    <select id="title-select" class="field-selector">
+                                        <option value="">Select field...</option>
+                                    </select>
+                                </div>
+
+                                <div class="selector-group card-layout-bottom-right">
+                                    <label for="bottom-right-select">Bottom-Right:</label>
+                                    <select id="bottom-right-select" class="field-selector">
+                                        <option value="">Select field...</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="card-option-toggles">
+                                <label class="filter-toggle-label" title="Enable card hover tooltips">
+                                    <input type="checkbox" id="show-tooltips-cb"> Tooltips
+                                </label>
+                                <label class="filter-toggle-label" title="Cards grow to fit content">
+                                    <input type="checkbox" id="grow-cards-cb"> Grow Cards
+                                </label>
+                            </div>
                         </div>
-                        <div class="table-column-builder">
-                            <div class="table-column-list-group">
-                                <label for="table-available-fields">Available Fields</label>
-                                <select id="table-available-fields" class="table-column-list" multiple size="8"></select>
+                    </section>
+
+                    <section id="table-layout-section" class="mode-config-section hidden">
+                        <div id="table-layout-panel" class="mode-config-panel">
+                            <div class="table-summary-controls">
+                                <label for="table-summary-mode-select">Table Summary</label>
+                                <select id="table-summary-mode-select" class="field-selector table-summary-mode-select">
+                                    <option value="none">None</option>
+                                    <option value="sum">Sum</option>
+                                    <option value="average">Average</option>
+                                    <option value="min">Min</option>
+                                    <option value="max">Max</option>
+                                </select>
                             </div>
-                            <div class="table-column-actions" aria-label="Table column actions">
-                                <button type="button" id="table-columns-add-btn" class="control-btn table-column-action">Add →</button>
-                                <button type="button" id="table-columns-remove-btn" class="control-btn table-column-action">← Remove</button>
-                            </div>
-                            <div class="table-column-list-group">
-                                <label for="table-selected-fields">Selected Columns</label>
-                                <select id="table-selected-fields" class="table-column-list" multiple size="8"></select>
-                                <div class="table-selected-actions" aria-label="Selected table column ordering">
-                                    <button type="button" id="table-columns-move-up-btn" class="control-btn table-column-action">Move Up</button>
-                                    <button type="button" id="table-columns-move-down-btn" class="control-btn table-column-action">Move Down</button>
-                                    <button type="button" id="table-columns-sort-az-btn" class="control-btn table-column-action">Sort A-Z</button>
+                            <div class="table-column-builder">
+                                <div class="table-column-list-group">
+                                    <label for="table-available-fields">Available Fields</label>
+                                    <select id="table-available-fields" class="table-column-list" multiple size="8"></select>
+                                </div>
+                                <div class="table-column-actions" aria-label="Table column actions">
+                                    <button type="button" id="table-columns-add-btn" class="control-btn table-column-action">Add →</button>
+                                    <button type="button" id="table-columns-remove-btn" class="control-btn table-column-action">← Remove</button>
+                                </div>
+                                <div class="table-column-list-group">
+                                    <label for="table-selected-fields">Selected Columns</label>
+                                    <select id="table-selected-fields" class="table-column-list" multiple size="8"></select>
+                                    <div class="table-selected-actions" aria-label="Selected table column ordering">
+                                        <button type="button" id="table-columns-move-up-btn" class="control-btn table-column-action">Move Up</button>
+                                        <button type="button" id="table-columns-move-down-btn" class="control-btn table-column-action">Move Down</button>
+                                        <button type="button" id="table-columns-sort-az-btn" class="control-btn table-column-action">Sort A-Z</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    </section>
+
+                    <div class="view-panel-actions">
+                        <button id="compare-view-btn" class="control-btn" title="Open a second window with the same data and view for side-by-side comparison">🔀 Compare View</button>
                     </div>
-                </section>
+                </div>
             </div>
             
-            <!-- Data Management Controls -->
+        </div>
+
+        <div class="control-area-data">
+            <div class="section-header">
+                <h3>Data Handling</h3>
+            </div>
             <div class="data-controls">
                 <div class="file-controls">
                     <button id="load-data-btn" class="control-btn">📂 Load Data</button>
                     <button id="reload-data-btn" class="control-btn">🔄 Reload</button>
                     <button id="save-data-btn" class="control-btn">💾 Save Data</button>
+                    <button id="promote-data-btn" class="control-btn">⬆ Promote Changes</button>
                     <button id="export-filtered-btn" class="control-btn">📤 Export Filtered</button>
                 </div>
-                
-                <div class="view-controls">
+                <div class="data-view-controls">
                     <button id="load-view-btn" class="control-btn">🔧 Load View</button>
                     <button id="save-view-btn" class="control-btn">🔧 Save View</button>
-                    <button id="compare-view-btn" class="control-btn" title="Open a second window with the same data and view for side-by-side comparison">🔀 Compare View</button>
+                </div>
+                <div class="server-controls" style="display:none"></div>
+                <div class="desktop-controls" style="display:none"></div>
+                <div class="desktop-tools" style="display:none"></div>
+            </div>
+        </div>
+        
+        <!-- Filters (Slicers) Area -->
+        <div class="slicers-area">
+            <div class="slicers-header">
+                <h3>Filters</h3>
+                <div class="slicers-header-actions">
                     <label class="filter-toggle-label" title="Show relationship-derived fields in filters">
                         <input type="checkbox" id="show-relationship-fields-cb"> Relationship Fields
                     </label>
                     <label class="filter-toggle-label" title="Show other derived fields in filters">
                         <input type="checkbox" id="show-derived-fields-cb"> Derived Fields
                     </label>
-                    <label class="filter-toggle-label" title="Enable card hover tooltips">
-                        <input type="checkbox" id="show-tooltips-cb"> Tooltips
-                    </label>
-                    <label class="filter-toggle-label" title="Cards grow to fit content">
-                        <input type="checkbox" id="grow-cards-cb"> Grow Cards
-                    </label>
-                    <label class="filter-toggle-label" title="Render each populated grid cell as a compact table">
-                        <input type="checkbox" id="table-mode-cb"> Table Mode
-                    </label>
                 </div>
             </div>
-            
-        </div>
-        
-        <!-- Filters (Slicers) Area -->
-        <div class="slicers-area">
-            <h3>Filters</h3>
             <div id="slicers-container" class="slicers-container">
                 <!-- Slicers will be generated dynamically -->
             </div>
@@ -205,6 +220,7 @@ SOFTWARE.
         
         <!-- Grid Area -->
         <div class="grid-area">
+            <div id="grid-file-path" class="grid-file-path"></div>
             <div id="group-legend" class="group-legend hidden">
                 <!-- Group legend items generated dynamically -->
             </div>
@@ -489,6 +505,8 @@ SOFTWARE.
     <!-- JavaScript Files -->
     <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="desktop-bridge.js"></script>
+    <script src="desktop-tools.js"></script>
     <script src="file-service.js"></script>
     <script src="app.js"></script>
     <script src="controls.js"></script>
@@ -497,8 +515,27 @@ SOFTWARE.
     <script src="advanced-features.js"></script>
     <script src="details-panel.js"></script>
     <script src="relations.js"></script>
+    <script src="graph-view.js"></script>
+    <script src="server-controls.js"></script>
     
     <!-- Hidden File Inputs -->
+
+    <!-- Console Popup (for interactive pipeline review) -->
+    <div id="console-popup-overlay" class="console-popup-overlay" style="display:none">
+        <div class="console-popup">
+            <div class="console-popup-header">
+                <span id="console-popup-title">Pipeline Console</span>
+                <button id="console-popup-close" title="Close">✕</button>
+            </div>
+            <pre id="console-popup-output" class="console-popup-output"></pre>
+            <div id="console-popup-input" class="console-popup-input" style="display:none">
+                <span id="console-popup-prompt"></span>
+                <button id="console-popup-yes" class="control-btn console-popup-btn-yes">✔ Yes</button>
+                <button id="console-popup-no" class="control-btn console-popup-btn-no">✘ No</button>
+            </div>
+            <div id="console-popup-status" class="console-popup-status"></div>
+        </div>
+    </div>
 
 </body>
 </html>

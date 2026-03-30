@@ -5,6 +5,11 @@
 // Handles all file loading/saving operations for the data visualization app
 
 class FileService {
+    /** Desktop mode — true once the PySide6 QWebChannel bridge is available. */
+    get isDesktopMode() {
+        return typeof window.desktopBridge !== 'undefined';
+    }
+
     constructor(options = {}) {
         // Check for File System Access API support
         this.supportsFileOpenPicker = 'showOpenFilePicker' in window;
@@ -33,6 +38,8 @@ class FileService {
             data: null,
             view: null
         };
+
+        this.persistedHandleHydrationPromise = null;
         
         // Supported file types
         this.fileTypes = {
@@ -116,6 +123,37 @@ class FileService {
         });
     }
 
+    hydratePersistedHandles() {
+        if (this.persistedHandleHydrationPromise) {
+            return this.persistedHandleHydrationPromise;
+        }
+
+        this.persistedHandleHydrationPromise = (async () => {
+            const [dataHandle, viewHandle] = await Promise.all([
+                this.readPersistedHandle('data'),
+                this.readPersistedHandle('view')
+            ]);
+
+            if (dataHandle && !this.fileHandles.data) {
+                this.fileHandles.data = dataHandle;
+            }
+
+            if (viewHandle && !this.fileHandles.view) {
+                this.fileHandles.view = viewHandle;
+            }
+
+            this.debugLog('hydrated persisted picker handles', {
+                userScope: this.getCurrentUserScope(),
+                data: this.describeHandle(this.fileHandles.data),
+                view: this.describeHandle(this.fileHandles.view)
+            });
+        })().catch((error) => {
+            console.warn('Failed to hydrate persisted file handles:', error);
+        });
+
+        return this.persistedHandleHydrationPromise;
+    }
+
     async logPickerIntent(action, type, extra = {}) {
         const persisted = await this.getPersistedHandleSummary(type);
         this.debugLog(`${action}: picker intent`, {
@@ -135,20 +173,44 @@ class FileService {
      * @returns {Promise<{content: any, filename: string}>}
      */
     async openFile(type = 'json') {
-        await this.logPickerIntent('open-file', type, {
-            supportsOpenPicker: this.supportsFileOpenPicker
+        this.logPickerIntent('open-file', type, {
+            supportsOpenPicker: this.supportsFileOpenPicker,
+            isDesktopMode: this.isDesktopMode
+        }).catch((error) => {
+            console.warn('Failed to log open-file picker intent:', error);
         });
 
-        if (this.supportsFileOpenPicker) {
+        if (this.isDesktopMode) {
+            return this.openFileWithDesktopBridge(type);
+        } else if (this.supportsFileOpenPicker) {
             return this.openFileWithFileSystemAccess(type);
         } else {
             return this.openFileWithFileInput(type);
         }
     }
+
+    async openFileWithDesktopBridge(type) {
+        const path = await window.desktopBridge.pickFile('JSON (*.json)');
+        if (!path) return null;
+
+        const result = await window.desktopBridge.readFile(path);
+        if (result.error) {
+            throw new Error(`Failed to read file: ${result.error}`);
+        }
+
+        const parsedContent = JSON.parse(result.content);
+        const fileType = this.resolveFileType(type, parsedContent);
+        const filename = path.split(/[\\/]/).pop();
+
+        window.desktopBridge.setCachedPath(fileType, path);
+        this.rememberOpenedFile(fileType, filename);
+
+        return { content: parsedContent, filename };
+    }
     
     async openFileWithFileSystemAccess(type) {
         try {
-            const startIn = await this.getPickerStartLocation(type);
+            const startIn = this.getPickerStartLocation(type);
             this.debugLog('opening file picker', {
                 type,
                 userScope: this.getCurrentUserScope(),
@@ -301,36 +363,52 @@ class FileService {
      * @param {string} type - File type hint ('data' or 'view')
      * @returns {Promise<void>}
      */
-    async saveFile(data, filename, type = 'json') {
-        const suggestedFilename = this.getSuggestedFilename(type, filename);
+    async saveFile(data, filename, type = 'json', options = {}) {
+        const { preferProvidedFilename = false } = options;
+        const suggestedFilename = preferProvidedFilename
+            ? filename
+            : this.getSuggestedFilename(type, filename);
 
-        await this.logPickerIntent('save-file', type, {
+        this.logPickerIntent('save-file', type, {
             supportsSavePicker: this.supportsFileSavePicker,
+            isDesktopMode: this.isDesktopMode,
             suggestedFilename
+        }).catch((error) => {
+            console.warn('Failed to log save-file picker intent:', error);
         });
 
-        if (this.supportsFileSavePicker) {
+        if (this.isDesktopMode) {
+            return this.saveFileWithDesktopBridge(data, suggestedFilename, type);
+        } else if (this.supportsFileSavePicker) {
             return this.saveFileWithFileSystemAccess(data, suggestedFilename, type);
         } else {
             return this.saveFileWithDownload(data, suggestedFilename, type);
         }
     }
+
+    async saveFileWithDesktopBridge(data, filename, type) {
+        // Use cached path for quick re-save; otherwise prompt with native save dialog
+        let path = window.desktopBridge.getCachedPath(type);
+        if (!path) {
+            path = await window.desktopBridge.pickSaveFile(filename, 'JSON (*.json)');
+            if (!path) return null;
+        }
+
+        const jsonString = JSON.stringify(data, null, 2);
+        const result = await window.desktopBridge.writeFile(path, jsonString);
+        if (!result.success) {
+            throw new Error(`Failed to save file: ${result.error}`);
+        }
+
+        const savedFilename = path.split(/[\\/]/).pop();
+        window.desktopBridge.setCachedPath(type, path);
+        this.rememberSavedFilename(type, savedFilename);
+        return savedFilename;
+    }
     
     async saveFileWithFileSystemAccess(data, filename, type) {
         try {
-            const startIn = await this.getPickerStartLocation(type);
-            this.debugLog('opening save picker', {
-                type,
-                userScope: this.getCurrentUserScope(),
-                startIn: this.describeHandle(startIn) || startIn,
-                suggestedFilename: filename
-            });
-            const fileHandle = await window.showSaveFilePicker({
-                id: this.getPickerId(type),
-                types: [this.fileTypes.json],
-                startIn,
-                suggestedName: filename
-            });
+            const fileHandle = await this.requestSaveFileHandle(type, filename, 'json');
 
             // Remember the chosen handle so the next picker starts nearby and
             // explicit quick-save flows can still overwrite directly.
@@ -385,6 +463,75 @@ class FileService {
         return filename;
     }
 
+    async requestSaveFileHandle(type, filename, fileType = 'json') {
+        const pickerFileType = this.fileTypes[fileType] || this.fileTypes.json;
+        const preferredStartIn = this.getPickerStartLocation(type);
+        const attempts = [
+            {
+                label: 'preferred options',
+                includeId: true,
+                includeStartIn: true,
+                startIn: preferredStartIn
+            },
+            {
+                label: 'without remembered location',
+                includeId: true,
+                includeStartIn: false,
+                startIn: null
+            },
+            {
+                label: 'minimal options',
+                includeId: false,
+                includeStartIn: false,
+                startIn: null
+            }
+        ];
+
+        let lastError = null;
+
+        for (const attempt of attempts) {
+            try {
+                const pickerOptions = {
+                    types: [pickerFileType],
+                    suggestedName: filename
+                };
+
+                if (attempt.includeId) {
+                    pickerOptions.id = this.getPickerId(type);
+                }
+
+                if (attempt.includeStartIn && attempt.startIn) {
+                    pickerOptions.startIn = attempt.startIn;
+                }
+
+                this.debugLog('opening save picker', {
+                    type,
+                    userScope: this.getCurrentUserScope(),
+                    attempt: attempt.label,
+                    startIn: this.describeHandle(attempt.startIn) || attempt.startIn || null,
+                    suggestedFilename: filename
+                });
+
+                return await window.showSaveFilePicker(pickerOptions);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw error;
+                }
+
+                lastError = error;
+                this.debugLog('save picker attempt failed', {
+                    type,
+                    userScope: this.getCurrentUserScope(),
+                    attempt: attempt.label,
+                    errorName: error.name || 'Error',
+                    errorMessage: error.message || String(error)
+                });
+            }
+        }
+
+        throw lastError || new Error('Save picker failed before opening');
+    }
+
             async saveBlob(blob, filename, options = {}) {
                 const {
                     pickerType = 'data',
@@ -401,18 +548,16 @@ class FileService {
                     suggestedFilename: filename,
                     fileType,
                     mimeType
+                }).catch((error) => {
+                    console.warn('Failed to log save-blob picker intent:', error);
                 });
 
                 if (this.supportsFileSavePicker) {
                     try {
-                        const startIn = await this.getPickerStartLocation(pickerType);
-                        const pickerFileType = this.fileTypes[fileType] || this.fileTypes.json;
-                        const fileHandle = await window.showSaveFilePicker({
-                            id: this.getPickerId(pickerType),
-                            types: [pickerFileType],
-                            startIn,
-                            suggestedName: filename
-                        });
+                        const fileHandle = await this.requestSaveFileHandle(pickerType, filename, fileType);
+
+                        await this.cacheFileHandle(pickerType, fileHandle);
+                        this.rememberSavedFilename(pickerType, fileHandle.name || filename);
 
                         const writable = await fileHandle.createWritable();
                         await writable.write(blob);
@@ -446,6 +591,15 @@ class FileService {
      * @returns {Promise<boolean>} - Success status
      */
     async quickSave(data, type) {
+        // Desktop mode: quick-save to cached absolute path
+        if (this.isDesktopMode) {
+            const cachedPath = window.desktopBridge.getCachedPath(type);
+            if (!cachedPath) return false;
+            const jsonString = JSON.stringify(data, null, 2);
+            const result = await window.desktopBridge.writeFile(cachedPath, jsonString);
+            return result.success === true;
+        }
+
         if (!this.supportsFileSystemAccess) {
             return false; // Quick save not supported without File System Access
         }
@@ -771,12 +925,12 @@ class FileService {
         await this.persistHandle(type, handle);
     }
 
-    async getPickerStartLocation(type) {
+    getPickerStartLocation(type) {
         if (type !== 'data' && type !== 'view') {
             return 'documents';
         }
 
-        const handle = await this.getCachedFileHandle(type);
+        const handle = this.fileHandles[type] || (type === 'view' ? this.fileHandles.data : null) || null;
         const startIn = handle || 'documents';
         this.debugLog('resolved picker start location', {
             type,

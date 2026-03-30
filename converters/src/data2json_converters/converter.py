@@ -46,19 +46,27 @@ def excel_to_json(
     json_path: Path | None = None,
     sheet_name: str = DEFAULT_SHEET_NAME,
 ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
-    workbook = load_workbook(excel_path, data_only=True)
-    if sheet_name not in workbook.sheetnames:
-        raise ValueError(f"Worksheet '{sheet_name}' not found in {excel_path}")
-
-    sheet = workbook[sheet_name]
     warnings: list[str] = []
-    headers = _read_headers(sheet, warnings)
     items: list[dict[str, Any]] = []
 
-    for row_index, row in enumerate(sheet.iter_rows(min_row=2), start=2):
-        item = _excel_row_to_item(headers, row, row_index=row_index, warnings=warnings)
-        if item:
-            items.append(item)
+    workbook = load_workbook(excel_path, data_only=True, read_only=True, keep_links=False)
+    try:
+        if sheet_name not in workbook.sheetnames:
+            available_sheets = ", ".join(workbook.sheetnames) if workbook.sheetnames else "(none)"
+            raise ValueError(
+                f"Worksheet '{sheet_name}' not found in {excel_path}. "
+                f"Available worksheets: {available_sheets}"
+            )
+
+        sheet = workbook[sheet_name]
+        headers = _read_headers(sheet, warnings)
+
+        for row_index, row in enumerate(sheet.iter_rows(min_row=2), start=2):
+            item = _excel_row_to_item(headers, row, row_index=row_index, warnings=warnings)
+            if item:
+                items.append(item)
+    finally:
+        workbook.close()
 
     payload = {"data": items}
     if json_path is not None:
@@ -631,9 +639,6 @@ def _build_review_row(
             return review_row
 
         field_names = _ordered_field_names(baseline, proposed)
-        if set(baseline.keys()) != set(proposed.keys()):
-            warnings.append(f"Change {change_id or '<unknown>'} has mismatched baseline/proposed field sets")
-            review_row["status"] = "invalid"
 
         if not field_names:
             warnings.append(f"Change {change_id or '<unknown>'} has no changed fields")
@@ -1143,7 +1148,7 @@ def _load_or_create_sheet(excel_path: Path, sheet_name: str) -> tuple[Workbook, 
 
 def _read_headers(sheet: Worksheet, warnings: list[str]) -> list[str | None]:
     headers: list[str | None] = []
-    for column_index, cell in enumerate(sheet[1], start=1):
+    for column_index, cell in enumerate(_iter_header_cells(sheet), start=1):
         raw_value = cell.value
         if raw_value is None or str(raw_value).strip() == "":
             warnings.append(f"Ignoring blank header in column {column_index}")
@@ -1155,11 +1160,16 @@ def _read_headers(sheet: Worksheet, warnings: list[str]) -> list[str | None]:
 
 def _read_existing_headers(sheet: Worksheet) -> list[str]:
     headers: list[str] = []
-    for cell in sheet[1]:
+    for cell in _iter_header_cells(sheet):
         if cell.value in (None, ""):
             continue
         headers.append(str(cell.value).strip())
     return headers
+
+
+def _iter_header_cells(sheet: Worksheet) -> tuple[Any, ...]:
+    header_rows = sheet.iter_rows(min_row=1, max_row=1)
+    return next(header_rows, ())
 
 
 def _excel_row_to_item(
@@ -1188,10 +1198,12 @@ def _excel_row_to_item(
         if normalized is None:
             continue
 
+        normalized_header = "comment" if header == "comments" else header
+
         if header in SOURCE_REF_COLUMNS:
             source_ref[header] = normalized
         else:
-            item[header] = normalized
+            item[normalized_header] = normalized
 
     if source_ref:
         item["sourceRef"] = source_ref
@@ -1352,11 +1364,7 @@ def _iter_datetime_candidates(value: str):
 
 
 def _isoformat_datetime(value: datetime) -> str:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    else:
-        value = value.astimezone(UTC)
-    return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return value.date().isoformat()
 
 
 def _derive_json_headers(items: list[Any], *, include_source_ref: bool) -> list[str]:
@@ -1373,9 +1381,10 @@ def _derive_json_headers(items: list[Any], *, include_source_ref: bool) -> list[
                             headers.append(source_key)
                             seen.add(source_key)
                 continue
-            if key not in seen:
-                headers.append(key)
-                seen.add(key)
+            normalized_key = "comment" if key == "comments" else key
+            if normalized_key not in seen:
+                headers.append(normalized_key)
+                seen.add(normalized_key)
     return headers
 
 
@@ -1549,6 +1558,11 @@ def _item_to_excel_values(item: dict[str, Any], warnings: list[str], *, include_
                     if source_key in value:
                         row_values[source_key] = _serialize_cell_value(value[source_key], key=source_key, warnings=warnings)
             continue
+        if key == "comments":
+            if "comment" in item:
+                continue
+            row_values["comment"] = _serialize_cell_value(value, key="comment", warnings=warnings)
+            continue
         row_values[key] = _serialize_cell_value(value, key=key, warnings=warnings)
     return row_values
 
@@ -1556,6 +1570,8 @@ def _item_to_excel_values(item: dict[str, Any], warnings: list[str], *, include_
 def _serialize_cell_value(value: Any, *, key: str, warnings: list[str]) -> Any:
     if value is None:
         return None
+    if _looks_like_legacy_comments_array(value):
+        return _serialize_legacy_comments_array(value, key=key, warnings=warnings)
     if isinstance(value, list):
         return "; ".join(str(part).strip() for part in value if str(part).strip())
     if _looks_like_comment_threads(value):
@@ -1571,6 +1587,10 @@ def _looks_like_comment_threads(value: Any) -> bool:
     return isinstance(value, dict) and isinstance(value.get("threads"), list)
 
 
+def _looks_like_legacy_comments_array(value: Any) -> bool:
+    return isinstance(value, list) and any(isinstance(entry, dict) and ("message" in entry or "text" in entry) for entry in value)
+
+
 def _serialize_comment_threads(value: dict[str, Any], *, key: str, warnings: list[str]) -> str:
     entries: list[str] = []
     threads = value.get("threads", [])
@@ -1583,12 +1603,63 @@ def _serialize_comment_threads(value: dict[str, Any], *, key: str, warnings: lis
                 warnings.append(f"Skipping malformed message in field '{key}'")
                 continue
             timestamp = str(message.get("timestamp", "")).strip()
-            normalized_timestamp = _normalize_timestamp_string(timestamp) if timestamp else None
-            rendered_timestamp = normalized_timestamp or timestamp
+            rendered_timestamp = _render_comment_timestamp(timestamp)
             author = str(message.get("author", "")).strip()
             text = str(message.get("text", "")).strip()
             entries.append(f"[{rendered_timestamp}] <{author}>: {text}")
     return "; ".join(entries)
+
+
+def _serialize_legacy_comments_array(value: list[Any], *, key: str, warnings: list[str]) -> str:
+    threads: list[dict[str, Any]] = []
+    for index, entry in enumerate(value, start=1):
+        if not isinstance(entry, dict):
+            warnings.append(f"Skipping malformed legacy comment entry in field '{key}'")
+            continue
+
+        messages: list[dict[str, Any]] = []
+        primary_text = str(entry.get("message") or entry.get("text") or "").strip()
+        if primary_text:
+            messages.append(
+                {
+                    "author": str(entry.get("author") or "").strip(),
+                    "timestamp": str(entry.get("timestamp") or "").strip(),
+                    "text": primary_text,
+                }
+            )
+
+        replies = entry.get("replies") if isinstance(entry.get("replies"), list) else []
+        for reply in replies:
+            if not isinstance(reply, dict):
+                warnings.append(f"Skipping malformed legacy comment reply in field '{key}'")
+                continue
+            reply_text = str(reply.get("message") or reply.get("text") or "").strip()
+            if not reply_text:
+                continue
+            messages.append(
+                {
+                    "author": str(reply.get("author") or "").strip(),
+                    "timestamp": str(reply.get("timestamp") or "").strip(),
+                    "text": reply_text,
+                }
+            )
+
+        if messages:
+            threads.append({"id": str(entry.get("id") or f"t{index}"), "messages": messages})
+
+    return _serialize_comment_threads({"threads": threads}, key=key, warnings=warnings)
+
+
+def _render_comment_timestamp(timestamp: str) -> str:
+    cleaned_timestamp = str(timestamp or "").strip()
+    if not cleaned_timestamp:
+        return ""
+
+    normalized_timestamp = _normalize_timestamp_string(cleaned_timestamp)
+    if normalized_timestamp:
+        return normalized_timestamp[:10]
+
+    return cleaned_timestamp[:10] if len(cleaned_timestamp) >= 10 else cleaned_timestamp
 
 
 def _ordered_field_names(baseline: dict[str, Any], proposed: dict[str, Any]) -> list[str]:

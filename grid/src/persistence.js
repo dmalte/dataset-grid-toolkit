@@ -15,6 +15,7 @@ class PersistenceManager {
     initializeFileOperations() {
         this.setupFileInputHandlers();
         this.setupDragDropFileHandling();
+        this.fileService.hydratePersistedHandles();
         this.loadPersistedViewConfiguration();
         this.refreshFileActionState();
         this.fileService.logPageLoadState().catch((error) => {
@@ -67,6 +68,10 @@ class PersistenceManager {
     
     async openDataFile() {
         try {
+            this.fileService.debugLog('user-triggered data load started', {
+                action: 'open-data-file',
+                currentDataFilename: this.fileService.getLastOpenedFilename('data'),
+            });
             const result = await this.fileService.openFile('data');
             if (!result) {
                 return; // User cancelled
@@ -83,6 +88,11 @@ class PersistenceManager {
 
     async reloadDataFile() {
         const reloadAction = this.fileService.getReloadAction('data');
+        this.fileService.debugLog('user-triggered data reload started', {
+            action: 'reload-data-file',
+            reloadAction,
+            currentDataFilename: this.fileService.getLastOpenedFilename('data'),
+        });
 
         if (reloadAction === 'reselect') {
             this.app.showNotification('Select the dataset again to reload it in this browser', 'info');
@@ -108,6 +118,11 @@ class PersistenceManager {
     
     async openViewFile() {
         try {
+            this.fileService.debugLog('user-triggered view load started', {
+                action: 'open-view-file',
+                currentViewFilename: this.fileService.getLastOpenedFilename('view'),
+                currentSourceContext: this.getCurrentSourceContext(),
+            });
             const result = await this.fileService.openFile('view');
             if (!result) {
                 return; // User cancelled
@@ -154,15 +169,134 @@ class PersistenceManager {
     }
     
     isViewFile(jsonData) {
-        return jsonData.hasOwnProperty('axisSelections') || 
-               jsonData.hasOwnProperty('filters') ||
-               jsonData.hasOwnProperty('tagCustomizations') ||
-               jsonData.hasOwnProperty('cardClick') ||
-               jsonData.hasOwnProperty('urlConfig');
+        if (!jsonData || typeof jsonData !== 'object' || Array.isArray(jsonData)) {
+            return false;
+        }
+
+        return Object.prototype.hasOwnProperty.call(jsonData, 'axisSelections') || 
+               Object.prototype.hasOwnProperty.call(jsonData, 'filters') ||
+               Object.prototype.hasOwnProperty.call(jsonData, 'tagCustomizations') ||
+               Object.prototype.hasOwnProperty.call(jsonData, 'cardClick') ||
+               Object.prototype.hasOwnProperty.call(jsonData, 'urlConfig');
+    }
+
+    normalizeSourceContext(payload, fileName, options = {}) {
+        const { serverSourceInfo = null } = options;
+        const existingMeta = payload && payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
+        const existingSourceContext = existingMeta.sourceContext && typeof existingMeta.sourceContext === 'object'
+            ? JSON.parse(JSON.stringify(existingMeta.sourceContext))
+            : null;
+
+        let inferredServerSourceContext = null;
+        if (serverSourceInfo && typeof serverSourceInfo === 'object') {
+            const sourceKind = String(serverSourceInfo.source_kind || '').trim();
+            const workbookPath = String(serverSourceInfo.source_excel || serverSourceInfo.excel || '').trim();
+            const obsidianConfigPath = String(serverSourceInfo.obsidian_config_path || serverSourceInfo.config_path || serverSourceInfo.source_path || '').trim();
+
+            if (sourceKind === 'excel-cli-converted' || (!sourceKind && workbookPath)) {
+                inferredServerSourceContext = {
+                    kind: 'excel-cli-converted',
+                    datasetFilename: fileName,
+                    workbookPath: workbookPath || null,
+                };
+            } else if (sourceKind === 'obsidian-cli-converted' || (!sourceKind && obsidianConfigPath)) {
+                inferredServerSourceContext = {
+                    kind: 'obsidian-cli-converted',
+                    datasetFilename: fileName,
+                    obsidianConfigPath: obsidianConfigPath || null,
+                };
+            }
+        }
+
+        if (
+            existingSourceContext &&
+            existingSourceContext.kind &&
+            !(existingSourceContext.kind === 'standalone-json' && inferredServerSourceContext)
+        ) {
+            this.fileService.debugLog('source context loaded from dataset metadata', {
+                fileName,
+                sourceContext: existingSourceContext,
+            });
+            return existingSourceContext;
+        }
+
+        if (inferredServerSourceContext) {
+            this.fileService.debugLog('source context inferred from server source info', {
+                fileName,
+                sourceContext: inferredServerSourceContext,
+                replacedExisting: existingSourceContext,
+            });
+            return inferredServerSourceContext;
+        }
+
+        const sourceContext = {
+            kind: 'standalone-json',
+            datasetFilename: fileName,
+        };
+        this.fileService.debugLog('source context defaulted to standalone json', {
+            fileName,
+            sourceContext,
+        });
+        return sourceContext;
+    }
+
+    getCurrentSourceContext(dataFilename = null) {
+        const existingMeta = this.app.metaInfo && typeof this.app.metaInfo === 'object' ? this.app.metaInfo : {};
+        const existingSourceContext = existingMeta.sourceContext && typeof existingMeta.sourceContext === 'object'
+            ? JSON.parse(JSON.stringify(existingMeta.sourceContext))
+            : null;
+
+        if (existingSourceContext && existingSourceContext.kind) {
+            return existingSourceContext;
+        }
+
+        return {
+            kind: 'standalone-json',
+            datasetFilename: dataFilename || this.fileService.getLastOpenedFilename('data') || null,
+        };
+    }
+
+    deriveExpectedViewFilename(sourceContext, dataFilename = null) {
+        const context = sourceContext && typeof sourceContext === 'object' ? sourceContext : {};
+        const kind = String(context.kind || '').trim();
+        const resolvedDataFilename = String(context.datasetFilename || dataFilename || '').trim();
+
+        if (kind === 'excel-cli-converted') {
+            const workbookPath = String(context.workbookPath || '').trim();
+            if (!workbookPath) {
+                return null;
+            }
+            const fileName = workbookPath.split(/[\\/]/).pop();
+            return fileName ? `${fileName}.view.json` : null;
+        }
+
+        if (kind === 'obsidian-cli-converted') {
+            return 'obsidian.view.json';
+        }
+
+        if (!resolvedDataFilename) {
+            return null;
+        }
+
+        return this.fileService.deriveCompanionViewFilename(resolvedDataFilename);
+    }
+
+    /**
+     * Derive the absolute path for the Obsidian view sidecar file.
+     * Returns null if the source context is not Obsidian or has no config path.
+     */
+    deriveObsidianViewAbsolutePath(sourceContext) {
+        const context = sourceContext && typeof sourceContext === 'object' ? sourceContext : {};
+        if (String(context.kind || '') !== 'obsidian-cli-converted') return null;
+        const configPath = String(context.obsidianConfigPath || '').trim();
+        if (!configPath) return null;
+        const dir = configPath.replace(/[\\/][^\\/]+$/, '');
+        return dir + '/obsidian.view.json';
     }
     
-    async processDataFileContent(content, fileName) {
+    async processDataFileContent(content, fileName, options = {}) {
         try {
+            const startedAt = performance.now();
             const jsonData = typeof content === 'string' ? JSON.parse(content) : content;
             
             // Handle different data formats
@@ -184,6 +318,15 @@ class PersistenceManager {
                 this.app.showNotification('Dataset is empty', 'warning');
                 return;
             }
+
+            payload.meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
+            payload.meta.sourceContext = this.normalizeSourceContext(payload, fileName, options);
+            this.fileService.debugLog('processing data file content', {
+                fileName,
+                sourceContext: payload.meta.sourceContext,
+                hasEmbeddedView: this.isViewFile(payload.view),
+                durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            });
             
             // Explicitly loaded datasets should start from their own embedded view
             // and optional companion .view.json, not the legacy global localStorage view.
@@ -198,27 +341,43 @@ class PersistenceManager {
 
             // Load the data into the application
             this.app.loadDataFromJSON(payload);
+            this.fileService.debugLog('loaded dataset payload into application state', {
+                fileName,
+                itemCount: dataset.length,
+                durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            });
             
-            // Apply embedded view as initial default (if present)
-            if (payload.view) {
+            // Apply embedded view as the primary persisted view state.
+            const hasEmbeddedView = this.isViewFile(payload.view);
+            if (hasEmbeddedView) {
                 this.applyViewConfiguration(payload.view);
             }
 
-            // Try to auto-load companion view file from cached handle.
-            // A companion .view.json takes priority over the embedded view
-            // so that item-manager re-exports don't overwrite user-saved views.
-            const companionView = await this.tryLoadCompanionView(fileName);
+            // Legacy fallback: only try a companion .view.json when the dataset
+            // does not already carry an embedded view.
+            const companionView = await this.tryLoadCompanionView(fileName, payload.meta.sourceContext);
             if (companionView) {
                 this.applyViewConfiguration(companionView.content);
                 this.app.showNotification(
                     `Loaded ${dataset.length} items from ${fileName} · view from ${companionView.filename}`,
                     'success'
                 );
+            } else if (hasEmbeddedView) {
+                this.fileService.debugLog('embedded view remains active because no external sidecar view was available', {
+                    fileName,
+                    sourceContext: payload.meta.sourceContext,
+                });
             } else {
                 this.app.showNotification(`Loaded ${dataset.length} items from ${fileName}`, 'success');
             }
 
             this.refreshFileActionState();
+            this.updateGridFilePath(fileName, payload.meta.sourceContext);
+            this.fileService.debugLog('completed processing data file content', {
+                fileName,
+                itemCount: dataset.length,
+                durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+            });
             
         } catch (error) {
             console.error('Error processing data file:', error);
@@ -226,9 +385,30 @@ class PersistenceManager {
         }
     }
     
+    updateGridFilePath(fileName, sourceContext) {
+        const el = document.getElementById('grid-file-path');
+        if (!el) return;
+        // In desktop mode, use the full path from the cached bridge path
+        if (this.app.isDesktopMode && window.desktopBridge) {
+            const fullPath = window.desktopBridge.getCachedPath('data');
+            if (fullPath) {
+                el.textContent = fullPath;
+                el.title = fullPath;
+                return;
+            }
+        }
+        const label = (sourceContext && sourceContext.filename) || fileName || '';
+        el.textContent = label;
+        el.title = label;
+    }
+
     processViewFileContent(content, fileName) {
         try {
             const viewConfig = typeof content === 'string' ? JSON.parse(content) : content;
+            this.fileService.debugLog('processing view file content', {
+                fileName,
+                keys: Object.keys(viewConfig || {}),
+            });
             this.applyViewConfiguration(viewConfig);
             this.app.showNotification(`Applied view configuration from ${fileName}`, 'success');
             this.refreshFileActionState();
@@ -243,15 +423,30 @@ class PersistenceManager {
      * Try to auto-load a companion .view.json from the cached view file handle.
      * Returns {content, filename} or null if no companion view is available.
      */
-    async tryLoadCompanionView(dataFilename) {
+    async tryLoadCompanionView(dataFilename, sourceContext = null) {
         try {
-            const expectedFilename = this.fileService.deriveCompanionViewFilename(dataFilename);
+            const expectedFilename = this.deriveExpectedViewFilename(sourceContext || this.getCurrentSourceContext(dataFilename), dataFilename);
             if (!expectedFilename) {
+                this.fileService.debugLog('view sidecar resolution skipped: no expected filename could be derived', {
+                    dataFilename,
+                    sourceContext,
+                });
                 return null;
             }
 
+            this.fileService.debugLog('resolved expected view sidecar filename', {
+                dataFilename,
+                expectedFilename,
+                sourceContext,
+            });
+
             const viewHandle = await this.fileService.getCachedFileHandle('view');
             if (!viewHandle) {
+                this.fileService.debugLog('view sidecar not auto-loaded: no cached view handle is available', {
+                    expectedFilename,
+                    dataFilename,
+                    sourceContext,
+                });
                 return null;
             }
 
@@ -276,6 +471,7 @@ class PersistenceManager {
             this.fileService.rememberOpenedFile('view', file.name);
             this.fileService.debugLog('auto-loaded companion view', {
                 filename: file.name,
+                expectedFilename,
                 userScope: this.fileService.getCurrentUserScope()
             });
 
@@ -291,18 +487,33 @@ class PersistenceManager {
     
     // ===== FILE SAVING OPERATIONS =====
     
-    async saveDataFile() {
+    async saveDataFile(options = {}) {
         try {
-            const data = this.prepareDataForSaving();
+            const { promoteChanges = false } = options;
+            const data = this.prepareDataForSaving({ promoteChanges });
             const itemCount = this.app.dataset ? this.app.dataset.length : 0;
             const filename = this.fileService.getSuggestedFilename('data', this.fileService.generateDataFilename(itemCount));
+            this.fileService.debugLog('user-triggered data save started', {
+                action: promoteChanges ? 'promote-save-data-file' : 'save-data-file',
+                filename,
+                itemCount,
+                changeRows: Array.isArray(data && data.changes && data.changes.rows) ? data.changes.rows.length : 0,
+                relationChanges: Array.isArray(data && data.changes && data.changes.relations) ? data.changes.relations.length : 0,
+                sourceContext: data && data.meta ? data.meta.sourceContext : null,
+            });
             
             const savedFilename = await this.fileService.saveFile(data, filename, 'data');
             if (savedFilename) {
-                this.app.showNotification(`Saved data file: ${savedFilename}`, 'success');
+                if (promoteChanges && typeof this.app.applyPromotedDataState === 'function') {
+                    this.app.applyPromotedDataState(data);
+                }
 
-                // Auto-save view to companion .view.json if a view handle is cached
-                await this.autoSaveCompanionView(savedFilename);
+                this.app.showNotification(
+                    promoteChanges
+                        ? `Promoted changes and saved data file: ${savedFilename}`
+                        : `Saved data file: ${savedFilename}`,
+                    'success'
+                );
             }
         } catch (error) {
             console.error('Error saving data file:', error);
@@ -312,64 +523,76 @@ class PersistenceManager {
         }
     }
 
-    /**
-     * Auto-save view config to companion .view.json via quick-save.
-     * Only writes if a view file handle is already cached (no picker shown).
-     * @param {string} dataFilename - The data filename just saved
-     */
-    async autoSaveCompanionView(dataFilename) {
-        try {
-            const expectedFilename = this.fileService.deriveCompanionViewFilename(dataFilename);
-            if (!expectedFilename) {
-                return;
-            }
-
-            const cachedViewHandle = await this.fileService.getCachedFileHandle('view');
-            if (!cachedViewHandle || cachedViewHandle.name !== expectedFilename) {
-                this.fileService.debugLog('auto-save companion view skipped', {
-                    reason: 'cached view handle does not match companion filename',
-                    expectedFilename,
-                    cachedViewFilename: cachedViewHandle ? cachedViewHandle.name : null,
-                    dataFilename,
-                    userScope: this.fileService.getCurrentUserScope()
-                });
-                return;
-            }
-
-            const viewConfig = this.prepareViewConfigForSaving();
-            const success = await this.fileService.quickSave(viewConfig, 'view');
-            if (success) {
-                this.fileService.debugLog('auto-saved companion view', {
-                    viewFilename: expectedFilename,
-                    dataFilename,
-                    userScope: this.fileService.getCurrentUserScope()
-                });
-            }
-        } catch (error) {
-            // Non-critical — silent failure
-            this.fileService.debugLog('auto-save companion view skipped', {
-                reason: error.message
-            });
-        }
-    }
-    
     async saveViewConfiguration() {
         try {
+            const sourceContext = this.getCurrentSourceContext();
+            console.log('[VIEW-SAVE] saveViewConfiguration triggered', {
+                kind: sourceContext?.kind,
+                desktopMode: this.fileService.isDesktopMode,
+                obsidianConfigPath: sourceContext?.obsidianConfigPath || null,
+                datasetFilename: sourceContext?.datasetFilename || null,
+            });
+
+            // Desktop + Obsidian: write directly to the derived absolute path
+            if (this.fileService.isDesktopMode) {
+                const obsViewPath = this.deriveObsidianViewAbsolutePath(sourceContext);
+                if (obsViewPath) {
+                    const viewConfig = this.prepareViewConfigForSaving();
+                    const result = await window.desktopBridge.writeFile(
+                        obsViewPath,
+                        JSON.stringify(viewConfig, null, 2),
+                    );
+                    if (result.success) {
+                        const savedName = obsViewPath.split(/[\\/]/).pop();
+                        this.app.showNotification(`Saved view config: ${savedName}`, 'success');
+                    } else {
+                        this.app.showNotification(`Failed to save view: ${result.error}`, 'error');
+                    }
+                    return;
+                }
+            }
+
+            const expectedFilename = this.deriveExpectedViewFilename(sourceContext);
+            const activeDataFilename = this.fileService.getLastOpenedFilename('data')
+                || (this.app.serverControlsManager && this.app.serverControlsManager.currentDataset
+                    ? this.app.serverControlsManager.currentDataset.filename
+                    : null);
+
+            this.fileService.debugLog('save view requested', {
+                activeDataFilename,
+                sourceContext,
+                expectedFilename,
+            });
+
+            if (expectedFilename) {
+                const viewConfig = this.prepareViewConfigForSaving();
+                const savedFilename = await this.fileService.saveFile(viewConfig, expectedFilename, 'view', {
+                    preferProvidedFilename: true,
+                });
+                if (savedFilename) {
+                    this.fileService.rememberSavedFilename('view', savedFilename);
+                    this.app.showNotification(`Saved view config: ${savedFilename}`, 'success');
+                }
+                return;
+            }
+
+            if (activeDataFilename) {
+                const result = await this.saveCurrentDatasetWithEmbeddedView(activeDataFilename);
+                if (result) {
+                    this.app.showNotification(`Saved view into data file: ${result}`, 'success');
+                }
+                return;
+            }
+
             const viewConfig = this.prepareViewConfigForSaving();
             const xAxis = this.app.currentAxisSelections.x || 'none';
             const yAxis = this.app.currentAxisSelections.y || 'none';
-
-            // Prefer companion filename derived from the data file (e.g. "foo.view.json")
-            const dataFilename = this.fileService.getLastOpenedFilename('data');
-            const companionFilename = dataFilename
-                ? this.fileService.deriveCompanionViewFilename(dataFilename)
-                : null;
             const fallbackFilename = this.fileService.generateViewFilename(xAxis, yAxis);
-            const filename = companionFilename || this.fileService.getSuggestedFilename('view', fallbackFilename);
-            
+            const filename = this.fileService.getSuggestedFilename('view', fallbackFilename);
+
             const savedFilename = await this.fileService.saveFile(viewConfig, filename, 'view');
             if (savedFilename) {
-                this.app.showNotification(`Saved view config: ${savedFilename}`, 'success');
+                this.app.showNotification(`Saved standalone view config: ${savedFilename}`, 'success');
             }
         } catch (error) {
             console.error('Error saving view configuration:', error);
@@ -378,27 +601,80 @@ class PersistenceManager {
             this.refreshFileActionState();
         }
     }
+
+    async saveCurrentDatasetWithEmbeddedView(dataFilename = null) {
+        const targetFilename = dataFilename
+            || this.fileService.getLastOpenedFilename('data')
+            || (this.app.serverControlsManager && this.app.serverControlsManager.currentDataset
+                ? this.app.serverControlsManager.currentDataset.filename
+                : null);
+
+        if (!targetFilename) {
+            throw new Error('No active data file is available');
+        }
+
+        if (this.app.isServerMode && this.app.serverControlsManager && this.app.serverControlsManager.currentDataset) {
+            this.fileService.debugLog('saving embedded view through active server dataset', {
+                targetFilename,
+                currentDataset: this.app.serverControlsManager.currentDataset.filename,
+            });
+            const result = await this.app.serverControlsManager.saveCurrentDataset({
+                suppressSuccessNotification: true,
+            });
+            if (!result.ok) {
+                throw result.error || new Error('Server save failed');
+            }
+            return this.app.serverControlsManager.currentDataset.filename;
+        }
+
+        const dataPayload = this.prepareDataForSaving();
+        const cachedDataHandle = await this.fileService.getCachedFileHandle('data');
+        this.fileService.debugLog('saving embedded view through active data file', {
+            targetFilename,
+            cachedDataHandle: cachedDataHandle ? cachedDataHandle.name : null,
+        });
+        if (cachedDataHandle && cachedDataHandle.name === targetFilename) {
+            const success = await this.fileService.quickSave(dataPayload, 'data');
+            if (success) {
+                this.fileService.rememberSavedFilename('data', targetFilename);
+                return targetFilename;
+            }
+        }
+
+        return await this.fileService.saveFile(dataPayload, targetFilename, 'data', {
+            preferProvidedFilename: true,
+        });
+    }
     
     // ===== DATA PREPARATION =====
     
-    prepareDataForSaving() {
+    prepareDataForSaving(options = {}) {
+        const { promoteChanges = false } = options;
         const now = window.GridDateUtils.createLocalTimestamp();
         const existingMeta = this.app.metaInfo || {};
         const datasetCardClick = typeof this.app.getDatasetCardClickConfig === 'function'
             ? this.app.getDatasetCardClickConfig()
             : (existingMeta.cardClick || null);
-        const baselineData = typeof this.app.getBaselineDataSnapshot === 'function'
-            ? this.app.getBaselineDataSnapshot()
-            : (this.app.baselineData || []);
+        const baselineData = promoteChanges && typeof this.app.getPromotedDataSnapshot === 'function'
+            ? this.app.getPromotedDataSnapshot()
+            : (typeof this.app.getBaselineDataSnapshot === 'function'
+                ? this.app.getBaselineDataSnapshot()
+                : (this.app.baselineData || []));
         const effectiveItemCount = this.app.dataset ? this.app.dataset.length : 0;
 
         // Pre-filter raw pending changes to drop semantic no-ops before normalization
         const rawChanges = this.app.pendingChanges || { version: '1', rows: [] };
         this.app.pendingChanges = this.dropSemanticNoOpChanges(rawChanges);
 
-        const normalizedPendingChanges = typeof this.app.getPendingChangesSnapshot === 'function'
-            ? this.app.getPendingChangesSnapshot()
-            : (this.app.pendingChanges || { version: '1', rows: [] });
+        const normalizedPendingChanges = promoteChanges
+            ? {
+                version: String(rawChanges && rawChanges.version ? rawChanges.version : '1'),
+                rows: [],
+                relations: []
+            }
+            : (typeof this.app.getPendingChangesSnapshot === 'function'
+                ? this.app.getPendingChangesSnapshot()
+                : (this.app.pendingChanges || { version: '1', rows: [] }));
 
         // Restore original pending changes
         this.app.pendingChanges = rawChanges;
@@ -406,12 +682,14 @@ class PersistenceManager {
         return {
             data: baselineData,
             changes: normalizedPendingChanges,
+            view: this.prepareViewConfigForSaving(),
             schema: this.generateSchemaFromData(),
             meta: {
                 ...existingMeta,
+                sourceContext: this.getCurrentSourceContext(this.fileService.getLastOpenedFilename('data')),
                 cardClick: datasetCardClick,
                 version: existingMeta.version || '1.0',
-                created: existingMeta.created || now,
+                created: window.GridDateUtils.normalizeLocalTimestamp(existingMeta.created, now),
                 lastModified: now,
                 itemCount: effectiveItemCount
             }
@@ -463,6 +741,12 @@ class PersistenceManager {
             if (imported.selectable !== undefined) schema.fields[fieldName].selectable = imported.selectable;
             if (imported.visible !== undefined) schema.fields[fieldName].visible = imported.visible;
             if (Array.isArray(imported.validValues)) schema.fields[fieldName].validValues = imported.validValues;
+            const configuredValueColors = typeof this.app.getConfiguredFieldValueColors === 'function'
+                ? this.app.getConfiguredFieldValueColors(fieldName)
+                : null;
+            if (configuredValueColors && Object.keys(configuredValueColors).length > 0) {
+                schema.fields[fieldName].valueColors = JSON.parse(JSON.stringify(configuredValueColors));
+            }
         });
 
         // V4: Include relation type registry if present
@@ -481,6 +765,15 @@ class PersistenceManager {
         });
 
         const serializedTags = Object.fromEntries(this.app.tagCustomizations);
+        const fieldValueColors = {};
+        Object.keys(this.app.schemaFields || {}).forEach((fieldName) => {
+            const configuredValueColors = typeof this.app.getConfiguredFieldValueColors === 'function'
+                ? this.app.getConfiguredFieldValueColors(fieldName)
+                : null;
+            if (configuredValueColors && Object.keys(configuredValueColors).length > 0) {
+                fieldValueColors[fieldName] = JSON.parse(JSON.stringify(configuredValueColors));
+            }
+        });
 
         return {
             axisSelections: this.app.currentAxisSelections,
@@ -492,6 +785,7 @@ class PersistenceManager {
             slicerFilters: serializedFilters,
             tagCustomizations: serializedTags,
             tags: serializedTags,
+            fieldValueColors,
             cardClick: typeof this.app.getViewCardClickConfig === 'function'
                 ? this.app.getViewCardClickConfig()
                 : (this.app.viewConfig && this.app.viewConfig.cardClick) || null,
@@ -597,6 +891,28 @@ class PersistenceManager {
                 });
             }
 
+            if (Object.prototype.hasOwnProperty.call(normalizedViewConfig, 'fieldValueColors')) {
+                Object.values(this.app.schemaFields || {}).forEach((fieldConfig) => {
+                    if (fieldConfig && typeof fieldConfig === 'object' && Object.prototype.hasOwnProperty.call(fieldConfig, 'valueColors')) {
+                        delete fieldConfig.valueColors;
+                    }
+                });
+
+                const serializedFieldValueColors = normalizedViewConfig.fieldValueColors && typeof normalizedViewConfig.fieldValueColors === 'object'
+                    ? normalizedViewConfig.fieldValueColors
+                    : {};
+
+                Object.entries(serializedFieldValueColors).forEach(([fieldName, valueColors]) => {
+                    if (!this.app.schemaFields[fieldName]) {
+                        this.app.schemaFields[fieldName] = {};
+                    }
+
+                    if (valueColors && typeof valueColors === 'object' && Object.keys(valueColors).length > 0) {
+                        this.app.schemaFields[fieldName].valueColors = JSON.parse(JSON.stringify(valueColors));
+                    }
+                });
+            }
+
             if (Object.prototype.hasOwnProperty.call(normalizedViewConfig, 'cardClick') && typeof this.app.setViewCardClickConfig === 'function') {
                 this.app.setViewCardClickConfig(normalizedViewConfig.cardClick);
             }
@@ -667,8 +983,9 @@ class PersistenceManager {
             }
             if (Object.prototype.hasOwnProperty.call(normalizedViewConfig, 'cellRenderMode')) {
                 this.app.cellRenderMode = normalizedViewConfig.cellRenderMode === 'table' ? 'table' : 'cards';
-                const cb = document.getElementById('table-mode-cb');
-                if (cb) cb.checked = this.app.cellRenderMode === 'table';
+                if (this.app.controlPanelManager && typeof this.app.controlPanelManager.syncModeConfigurationVisibility === 'function') {
+                    this.app.controlPanelManager.syncModeConfigurationVisibility();
+                }
             }
 
             if (Object.prototype.hasOwnProperty.call(normalizedViewConfig, 'tableSummaryMode')) {
@@ -713,9 +1030,62 @@ class PersistenceManager {
     persistViewConfiguration() {
         try {
             const viewConfig = this.prepareViewConfigForSaving();
+            console.log('[VIEW-SAVE] persistViewConfiguration', {
+                axes: viewConfig.axisSelections,
+                filterCount: Object.keys(viewConfig.filters || {}).length,
+                cellRenderMode: viewConfig.cellRenderMode,
+                desktopMode: this.fileService.isDesktopMode,
+                timestamp: viewConfig.created,
+            });
             localStorage.setItem('grid-view-config', JSON.stringify(viewConfig));
+
+            // Debounced write to obsidian view sidecar in desktop mode
+            if (this.fileService.isDesktopMode) {
+                this._scheduleObsidianViewSave(viewConfig);
+            }
         } catch (error) {
             console.error('Error persisting view configuration:', error);
+        }
+    }
+
+    _scheduleObsidianViewSave(viewConfig) {
+        if (this._obsViewTimer) clearTimeout(this._obsViewTimer);
+        this._obsViewTimer = setTimeout(() => {
+            this._writeObsidianView(viewConfig);
+        }, 1500);
+    }
+
+    async _writeObsidianView(viewConfig) {
+        try {
+            const sourceContext = this.getCurrentSourceContext();
+            const obsViewPath = this.deriveObsidianViewAbsolutePath(sourceContext);
+            if (!obsViewPath) {
+                console.log('[OBSIDIAN-VIEW] Skipped — no obsidian view path', {
+                    kind: sourceContext?.kind,
+                    obsidianConfigPath: sourceContext?.obsidianConfigPath || null,
+                });
+                return;
+            }
+            const jsonStr = JSON.stringify(viewConfig, null, 2);
+            console.log('[OBSIDIAN-VIEW] Writing auto-save', {
+                path: obsViewPath,
+                sizeBytes: jsonStr.length,
+                axes: viewConfig.axisSelections,
+                filterCount: Object.keys(viewConfig.filters || {}).length,
+                cellRenderMode: viewConfig.cellRenderMode,
+                timestamp: viewConfig.created,
+            });
+            const result = await window.desktopBridge.writeFile(
+                obsViewPath,
+                jsonStr,
+            );
+            console.log('[OBSIDIAN-VIEW] Auto-save result', {
+                path: obsViewPath,
+                success: result.success,
+                error: result.success ? null : result.error,
+            });
+        } catch (err) {
+            console.warn('[OBSIDIAN-VIEW] Auto-save failed:', err.message);
         }
     }
     
@@ -754,6 +1124,10 @@ class PersistenceManager {
     // Expose save methods for use by other managers
     async saveData() {
         return this.saveDataFile();
+    }
+
+    async savePromotedData() {
+        return this.saveDataFile({ promoteChanges: true });
     }
     
     async saveView() {
@@ -854,6 +1228,10 @@ function attachPersistenceIntegration(targetApp) {
 
     targetApp.saveData = function() {
         return this.initializePersistence().saveDataFile();
+    };
+
+    targetApp.promoteChanges = function() {
+        return this.initializePersistence().saveDataFile({ promoteChanges: true });
     };
 
     targetApp.saveViewConfig = function() {

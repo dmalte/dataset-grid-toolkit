@@ -173,9 +173,23 @@ class DetailsPanelManager {
 
         // Update header
         const titleEl = this.panel.querySelector('.details-panel-title');
-        if (titleEl) titleEl.textContent = `${headerType === 'column' ? 'Column' : 'Row'}: ${headerValue || '(empty)'}`;
+        if (titleEl) {
+            if (headerType === 'column') {
+                titleEl.textContent = `Column: ${headerValue || '(empty)'}`;
+            } else if (headerType === 'row') {
+                titleEl.textContent = `Row: ${headerValue || '(empty)'}`;
+            } else {
+                titleEl.textContent = `Field Values: ${fieldName}`;
+            }
+        }
         const subtitleEl = this.panel.querySelector('.details-panel-subtitle');
-        if (subtitleEl) subtitleEl.textContent = `Field: ${fieldName}`;
+        if (subtitleEl) {
+            if (headerType === 'filter' && headerValue !== undefined && headerValue !== null) {
+                subtitleEl.textContent = `Right-clicked filter value: ${headerValue || '(empty)'}`;
+            } else {
+                subtitleEl.textContent = `Field: ${fieldName}`;
+            }
+        }
 
         // Hide focus button for header mode
         const focusBtn = document.getElementById('details-panel-focus-btn');
@@ -713,6 +727,9 @@ class DetailsPanelManager {
         const currentValidValues = Array.isArray(schemaField.validValues)
             ? [...schemaField.validValues]
             : [];
+        const configuredValueColors = schemaField && typeof schemaField.valueColors === 'object' && schemaField.valueColors !== null
+            ? schemaField.valueColors
+            : {};
 
         const dataValues = this.app.distinctValues.get(fieldName) || [];
         const allValues = Array.isArray(schemaField.validValues)
@@ -720,34 +737,105 @@ class DetailsPanelManager {
             : Array.from(new Set([...currentValidValues, ...dataValues])).sort();
 
         allValues.forEach(value => {
-            const row = document.createElement('div');
-            row.className = 'header-value-row';
-
-            const label = document.createElement('span');
-            label.className = 'header-value-label';
-            label.textContent = value;
-
             const isSchemaValue = currentValidValues.includes(value);
-            if (isSchemaValue) {
-                label.classList.add('is-schema-value');
-            }
-
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'header-value-remove-btn';
-            removeBtn.textContent = '×';
-            removeBtn.title = 'Remove from valid values';
-            removeBtn.addEventListener('click', () => {
-                row.remove();
-            });
-
-            row.appendChild(label);
-            row.appendChild(removeBtn);
-            container.appendChild(row);
+            container.appendChild(this.createHeaderValueRow(
+                value,
+                configuredValueColors[String(value)] || '',
+                isSchemaValue
+            ));
         });
 
         // Clear the add input
         const addInput = document.getElementById('header-value-new-input');
         if (addInput) addInput.value = '';
+    }
+
+    createHeaderValueRow(value, configuredColor = '', isSchemaValue = false) {
+        const row = document.createElement('div');
+        row.className = 'header-value-row';
+        row.dataset.value = String(value);
+
+        const label = document.createElement('span');
+        label.className = 'header-value-label';
+        label.textContent = value;
+
+        if (isSchemaValue) {
+            label.classList.add('is-schema-value');
+        }
+
+        const controls = document.createElement('div');
+        controls.className = 'header-value-row-controls';
+
+        const colorButton = document.createElement('button');
+        colorButton.type = 'button';
+        colorButton.className = 'header-value-color-trigger';
+        colorButton.title = 'Choose color for this value';
+
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.className = 'header-value-color-input';
+        colorInput.value = configuredColor || '#808080';
+        colorInput.setAttribute('aria-label', `Color for ${value}`);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'header-value-clear-btn';
+        clearBtn.textContent = 'Clear';
+        clearBtn.title = 'Remove configured color';
+
+        if (configuredColor) {
+            row.dataset.valueColor = configuredColor;
+        } else {
+            row.dataset.valueColor = '';
+            row.classList.add('is-color-unset');
+        }
+
+        this.updateHeaderValueColorButton(colorButton, configuredColor);
+
+        colorButton.addEventListener('click', () => {
+            colorInput.click();
+        });
+
+        colorInput.addEventListener('input', () => {
+            row.dataset.valueColor = colorInput.value;
+            row.classList.remove('is-color-unset');
+            this.updateHeaderValueColorButton(colorButton, colorInput.value);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            row.dataset.valueColor = '';
+            row.classList.add('is-color-unset');
+            colorInput.value = '#808080';
+            this.updateHeaderValueColorButton(colorButton, '');
+        });
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'header-value-remove-btn';
+        removeBtn.textContent = '×';
+        removeBtn.title = 'Remove from valid values';
+        removeBtn.addEventListener('click', () => {
+            row.remove();
+        });
+
+        controls.appendChild(colorButton);
+        controls.appendChild(colorInput);
+        controls.appendChild(clearBtn);
+        controls.appendChild(removeBtn);
+        row.appendChild(label);
+        row.appendChild(controls);
+        return row;
+    }
+
+    updateHeaderValueColorButton(button, configuredColor) {
+        if (!button) {
+            return;
+        }
+
+        const normalizedColor = typeof configuredColor === 'string' ? configuredColor.trim() : '';
+        button.classList.toggle('is-color-unset', !normalizedColor);
+        button.textContent = normalizedColor ? '' : '×';
+        button.style.backgroundColor = normalizedColor || '#d0d5db';
+        button.style.color = normalizedColor ? 'transparent' : '#5f6368';
     }
 
     addHeaderValue() {
@@ -769,24 +857,7 @@ class DetailsPanelManager {
             }
         }
 
-        const row = document.createElement('div');
-        row.className = 'header-value-row';
-
-        const label = document.createElement('span');
-        label.className = 'header-value-label';
-        label.textContent = value;
-
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'header-value-remove-btn';
-        removeBtn.textContent = '×';
-        removeBtn.title = 'Remove from valid values';
-        removeBtn.addEventListener('click', () => {
-            row.remove();
-        });
-
-        row.appendChild(label);
-        row.appendChild(removeBtn);
-        container.appendChild(row);
+        container.appendChild(this.createHeaderValueRow(value));
 
         addInput.value = '';
         addInput.focus();
@@ -799,9 +870,19 @@ class DetailsPanelManager {
         if (!container) return;
 
         const values = [];
-        container.querySelectorAll('.header-value-label').forEach(el => {
-            const v = el.textContent.trim();
-            if (v) values.push(v);
+        const valueColors = {};
+        container.querySelectorAll('.header-value-row').forEach((row) => {
+            const label = row.querySelector('.header-value-label');
+            const value = label ? label.textContent.trim() : '';
+            if (!value) {
+                return;
+            }
+
+            values.push(value);
+            const configuredColor = String(row.dataset.valueColor || '').trim();
+            if (configuredColor) {
+                valueColors[value] = configuredColor;
+            }
         });
 
         const { fieldName } = this.headerContext;
@@ -811,6 +892,11 @@ class DetailsPanelManager {
             this.app.schemaFields[fieldName] = {};
         }
         this.app.schemaFields[fieldName].validValues = values;
+        if (Object.keys(valueColors).length > 0) {
+            this.app.schemaFields[fieldName].valueColors = valueColors;
+        } else {
+            delete this.app.schemaFields[fieldName].valueColors;
+        }
 
         const previousDistinctValues = typeof this.app.snapshotDistinctValues === 'function'
             ? this.app.snapshotDistinctValues()

@@ -382,7 +382,13 @@ class RelationUIManager {
 
     getPrimaryParentTarget(item) {
         if (!item || !Array.isArray(item.relations)) return null;
-        const parentRel = item.relations.find((rel) => rel && rel.type === 'parent' && rel.target && rel.target.itemId);
+        const parentRel = item.relations
+            .filter((rel) => rel && rel.type === 'parent' && rel.target && rel.target.itemId)
+            .sort((left, right) => {
+                const leftPriority = Number.isFinite(Number(left.priority)) ? Number(left.priority) : Number.MAX_SAFE_INTEGER;
+                const rightPriority = Number.isFinite(Number(right.priority)) ? Number(right.priority) : Number.MAX_SAFE_INTEGER;
+                return leftPriority - rightPriority;
+            })[0];
         if (!parentRel || !parentRel.target || !parentRel.target.itemId) return null;
 
         const parentId = String(parentRel.target.itemId);
@@ -453,6 +459,22 @@ class RelationUIManager {
         return String(fallbackId || 'Unknown');
     }
 
+    openLinkedItem(targetItem) {
+        if (!targetItem) {
+            return;
+        }
+
+        this.openPanel(targetItem, null);
+
+        const targetItemId = this.app.getItemIdentity(targetItem) || targetItem.id;
+        if (targetItemId && typeof this.app.focusItemInGrid === 'function') {
+            this.app.focusItemInGrid(targetItemId, {
+                select: true,
+                suppressWarning: true
+            });
+        }
+    }
+
     renderRelationshipTreeBranch(nodeData, isRoot, isLast) {
         const branch = document.createElement('div');
         branch.className = 'relation-tree-branch';
@@ -502,7 +524,7 @@ class RelationUIManager {
             labelEl.classList.add('relation-tree-clickable');
             labelEl.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.openPanel(targetItem, null);
+                this.openLinkedItem(targetItem);
             });
         }
 
@@ -598,7 +620,7 @@ class RelationUIManager {
             labelEl.classList.add('relation-item-clickable');
             labelEl.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.openPanel(targetItem, null);
+                this.openLinkedItem(targetItem);
             });
         } else {
             // Unresolved reference
@@ -784,6 +806,9 @@ class RelationUIManager {
         const now = window.GridDateUtils.createLocalTimestamp();
         const relationId = `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const changeId = `relchg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const priority = type === 'parent'
+            ? this.getNextRelationPriority(ownerItem, type)
+            : 1;
 
         const changeEntry = {
             changeId: changeId,
@@ -795,6 +820,7 @@ class RelationUIManager {
             proposed: {
                 relationId: relationId,
                 type: type,
+                priority: priority,
                 direction: 'outward',
                 target: {
                     itemId: targetInfo.itemId || null,
@@ -825,6 +851,23 @@ class RelationUIManager {
         }
 
         this.app.showNotification('Relation added', 'success');
+    }
+
+    getNextRelationPriority(ownerItem, type) {
+        if (!ownerItem || !Array.isArray(ownerItem.relations)) {
+            return 1;
+        }
+
+        const priorities = ownerItem.relations
+            .filter((relation) => relation && relation.type === type && !relation._derived)
+            .map((relation) => Number(relation.priority))
+            .filter((priority) => Number.isFinite(priority) && priority > 0);
+
+        if (priorities.length === 0) {
+            return 1;
+        }
+
+        return Math.max(...priorities) + 1;
     }
 
     removeRelation(ownerItemId, relationId) {
@@ -872,16 +915,6 @@ class RelationUIManager {
     setParent(childItemId, parentItemId) {
         const childItem = this.app.getEffectiveItemById(childItemId);
         if (!childItem) return;
-
-        // Remove any existing parent relation from the child
-        if (Array.isArray(childItem.relations)) {
-            const existingParent = childItem.relations.find(
-                (r) => r.type === 'parent' && !r._derived
-            );
-            if (existingParent && existingParent.relationId) {
-                this.removeRelation(childItemId, existingParent.relationId);
-            }
-        }
 
         // Add parent relation: child → parent
         this.addRelation(childItemId, 'parent', { itemId: parentItemId });

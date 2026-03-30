@@ -1682,7 +1682,20 @@ class InteractionManager {
             menu.appendChild(relViewOption);
         }
 
-        // Option d) Enter Focus Mode (relations)
+        // Option d) Open in Graph View
+        if (this.app.graphViewManager) {
+            const graphViewOption = document.createElement('div');
+            graphViewOption.className = 'card-context-menu-item';
+            graphViewOption.textContent = 'Open in Graph View';
+            graphViewOption.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.dismissCardContextMenu();
+                this.app.graphViewManager.openGraphView(item);
+            });
+            menu.appendChild(graphViewOption);
+        }
+
+        // Option f) Enter Focus Mode (relations)
         if (this.app.relationUIManager) {
             const focusOption = document.createElement('div');
             focusOption.className = 'card-context-menu-item';
@@ -1696,7 +1709,7 @@ class InteractionManager {
             menu.appendChild(focusOption);
         }
 
-        // Option e) Markdown View
+        // Option g) Markdown View
         if (this.app.detailsPanelManager) {
             const mdOption = document.createElement('div');
             mdOption.className = 'card-context-menu-item';
@@ -1707,6 +1720,23 @@ class InteractionManager {
                 this.app.detailsPanelManager.openForItem(item, 'markdown');
             });
             menu.appendChild(mdOption);
+        }
+
+        // Option h) Show Changes
+        {
+            const itemId = this.app.getItemIdentity(item) || item.id;
+            const itemChanges = this._getChangesForItem(itemId);
+            if (itemChanges.length > 0) {
+                const changesOption = document.createElement('div');
+                changesOption.className = 'card-context-menu-item';
+                changesOption.textContent = 'Show Changes';
+                changesOption.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.dismissCardContextMenu();
+                    this._showChangesPopup(itemChanges, itemId);
+                });
+                menu.appendChild(changesOption);
+            }
         }
 
         // Position at click coordinates
@@ -1748,6 +1778,174 @@ class InteractionManager {
     dismissCardContextMenu() {
         const existing = document.getElementById('card-context-menu');
         if (existing) existing.remove();
+    }
+
+    // ── Show Changes helpers ──────────────────────────────
+
+    _getChangesForItem(itemId) {
+        const rows = (this.app.pendingChanges && Array.isArray(this.app.pendingChanges.rows))
+            ? this.app.pendingChanges.rows
+            : [];
+        return rows.filter((r) => {
+            const tid = r.target && (r.target.itemId || r.target.id);
+            return String(tid) === String(itemId);
+        });
+    }
+
+    _getAllChanges() {
+        const rows = (this.app.pendingChanges && Array.isArray(this.app.pendingChanges.rows))
+            ? this.app.pendingChanges.rows
+            : [];
+        return rows;
+    }
+
+    _flattenChangeRows(changeRows) {
+        const flat = [];
+        for (const row of changeRows) {
+            const itemId = row.target && (row.target.itemId || row.target.id) || '?';
+            const action = row.action || 'update';
+            const proposed = row.proposed || {};
+            const baseline = row.baseline || {};
+            const fields = new Set([...Object.keys(proposed), ...Object.keys(baseline)]);
+            for (const field of fields) {
+                flat.push({
+                    id: itemId,
+                    action,
+                    field,
+                    original: baseline[field] !== undefined ? baseline[field] : '',
+                    changed: proposed[field] !== undefined ? proposed[field] : '',
+                });
+            }
+        }
+        return flat;
+    }
+
+    _showChangesPopup(changeRows, title) {
+        const flat = this._flattenChangeRows(changeRows);
+
+        // Build modal overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'changes-popup-overlay';
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        const modal = document.createElement('div');
+        modal.className = 'changes-popup-modal';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'changes-popup-header';
+        const h3 = document.createElement('h3');
+        h3.textContent = title ? `Changes — ${title}` : 'All Changes';
+        header.appendChild(h3);
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'modal-close';
+        closeBtn.textContent = '×';
+        closeBtn.addEventListener('click', () => overlay.remove());
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+
+        // Body
+        const body = document.createElement('div');
+        body.className = 'changes-popup-body';
+
+        if (flat.length === 0) {
+            body.textContent = 'No pending changes.';
+        } else {
+            const table = document.createElement('table');
+            table.className = 'changes-popup-table';
+            const thead = document.createElement('thead');
+            const headRow = document.createElement('tr');
+            for (const col of ['ID', 'Field', 'Original Value', 'Changed Value']) {
+                const th = document.createElement('th');
+                th.textContent = col;
+                headRow.appendChild(th);
+            }
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (const entry of flat) {
+                const tr = document.createElement('tr');
+                for (const val of [entry.id, entry.field, this._formatCellValue(entry.original), this._formatCellValue(entry.changed)]) {
+                    const td = document.createElement('td');
+                    td.textContent = val;
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            body.appendChild(table);
+        }
+
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Escape to close
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', escHandler, true);
+            }
+        };
+        document.addEventListener('keydown', escHandler, true);
+    }
+
+    _formatCellValue(val) {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    }
+
+    showGridChangesContextMenu(event) {
+        this.dismissCardContextMenu();
+
+        const allChanges = this._getAllChanges();
+        if (allChanges.length === 0) return;
+
+        const menu = document.createElement('div');
+        menu.className = 'card-context-menu';
+        menu.id = 'card-context-menu';
+
+        const option = document.createElement('div');
+        option.className = 'card-context-menu-item';
+        option.textContent = `Show Changes (${allChanges.length})`;
+        option.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.dismissCardContextMenu();
+            this._showChangesPopup(allChanges, null);
+        });
+        menu.appendChild(option);
+
+        document.body.appendChild(menu);
+        const menuRect = menu.getBoundingClientRect();
+        let left = event.clientX;
+        let top = event.clientY;
+        if (left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 4;
+        if (top + menuRect.height > window.innerHeight) top = window.innerHeight - menuRect.height - 4;
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+
+        const dismissHandler = (e) => {
+            if (!menu.contains(e.target)) {
+                this.dismissCardContextMenu();
+                document.removeEventListener('mousedown', dismissHandler, true);
+                document.removeEventListener('keydown', escDismiss, true);
+            }
+        };
+        const escDismiss = (e) => {
+            if (e.key === 'Escape') {
+                this.dismissCardContextMenu();
+                document.removeEventListener('mousedown', dismissHandler, true);
+                document.removeEventListener('keydown', escDismiss, true);
+            }
+        };
+        requestAnimationFrame(() => {
+            document.addEventListener('mousedown', dismissHandler, true);
+            document.addEventListener('keydown', escDismiss, true);
+        });
     }
 
     getFilterSetupEntries(item, surfaceElement = null) {

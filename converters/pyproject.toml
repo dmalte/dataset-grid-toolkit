@@ -6,11 +6,13 @@ requires-python = ">=3.10"
 dependencies = [
     "openpyxl>=3.1,<4",
     "PyQt6>=6.7,<7",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
 excel-to-json = "data2json_converters.cli:excel_to_json_main"
 json-to-excel = "data2json_converters.cli:json_to_excel_main"
+obsidian2json = "obsidian2json.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

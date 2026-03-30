@@ -2,18 +2,73 @@
 
 // Core Data Model and Application State
 const GridDateUtils = window.GridDateUtils || {
-    createLocalTimestamp(date = new Date()) {
+    createDateStamp(date = new Date()) {
+        const value = date instanceof Date ? date : new Date(date);
+        const pad = (part) => String(part).padStart(2, '0');
+        return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+    },
+
+    createOffsetStamp(date = new Date()) {
         const value = date instanceof Date ? date : new Date(date);
         const pad = (part) => String(part).padStart(2, '0');
         const offsetMinutes = -value.getTimezoneOffset();
-        const offsetSign = offsetMinutes >= 0 ? '+' : '-';
+        const sign = offsetMinutes >= 0 ? '+' : '-';
         const absoluteOffsetMinutes = Math.abs(offsetMinutes);
-        const offsetHours = pad(Math.floor(absoluteOffsetMinutes / 60));
-        const offsetRemainderMinutes = pad(absoluteOffsetMinutes % 60);
-
+        const offsetHours = Math.floor(absoluteOffsetMinutes / 60);
+        const offsetRemainderMinutes = absoluteOffsetMinutes % 60;
         return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}` +
             `T${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}` +
-            `${offsetSign}${offsetHours}:${offsetRemainderMinutes}`;
+            `${sign}${pad(offsetHours)}:${pad(offsetRemainderMinutes)}`;
+    },
+
+    normalizeDateStamp(value, fallback = '') {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            return this.createDateStamp(value);
+        }
+
+        const text = String(value ?? '').trim();
+        if (!text) {
+            return fallback;
+        }
+
+        const directDateMatch = text.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (directDateMatch) {
+            return directDateMatch[1];
+        }
+
+        const parsed = new Date(text);
+        if (!Number.isNaN(parsed.getTime())) {
+            return this.createDateStamp(parsed);
+        }
+
+        return fallback || text;
+    },
+
+    createLocalTimestamp(date = new Date()) {
+        return this.createOffsetStamp(date);
+    },
+
+    normalizeLocalTimestamp(value, fallback = '') {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            return this.createLocalTimestamp(value);
+        }
+
+        const text = String(value ?? '').trim();
+        if (!text) {
+            return fallback;
+        }
+
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/.test(text)) {
+            const parsedExisting = new Date(text);
+            return Number.isNaN(parsedExisting.getTime()) ? (fallback || text) : this.createLocalTimestamp(parsedExisting);
+        }
+
+        const parsed = new Date(text);
+        if (!Number.isNaN(parsed.getTime())) {
+            return this.createLocalTimestamp(parsed);
+        }
+
+        return fallback || text;
     },
 
     createFilenameTimestamp(date = new Date()) {
@@ -105,7 +160,11 @@ class DataVisualizationApp {
         return this.currentUserName || 'Local User';
     }
 
-    setCurrentUserName(name) {
+    setCurrentUserName(name, options = {}) {
+        const {
+            persistLocal = true,
+            persistServer = this.isServerMode && this.serverControlsManager && typeof this.serverControlsManager.persistCurrentUserName === 'function',
+        } = options;
         const normalizedName = String(name || '').trim();
         if (!normalizedName) {
             return false;
@@ -113,10 +172,16 @@ class DataVisualizationApp {
 
         this.currentUserName = normalizedName;
 
-        try {
-            localStorage.setItem(this.storageKeys.currentUserName, normalizedName);
-        } catch (error) {
-            console.warn('Failed to persist current user name:', error);
+        if (persistLocal) {
+            try {
+                localStorage.setItem(this.storageKeys.currentUserName, normalizedName);
+            } catch (error) {
+                console.warn('Failed to persist current user name:', error);
+            }
+        }
+
+        if (persistServer) {
+            void this.serverControlsManager.persistCurrentUserName(normalizedName);
         }
 
         if (typeof this.renderCurrentUserName === 'function') {
@@ -475,7 +540,7 @@ class DataVisualizationApp {
                 throw new Error('Invalid JSON format: missing or invalid data array');
             }
             
-            this.baselineData = this.cloneDataArray(jsonData.data);
+            this.baselineData = this.normalizeDataCommentFields(jsonData.data);
             this.pendingChanges = this.normalizeChangesPayload(jsonData.changes);
             this.dataset = this.buildEffectiveDataset();
             this.metaInfo = jsonData.meta || {};
@@ -554,7 +619,13 @@ class DataVisualizationApp {
             return {};
         }
 
-        return this.cloneValue(item);
+        const clonedItem = this.cloneValue(item);
+
+        if (Array.isArray(clonedItem.relations)) {
+            clonedItem.relations = this.normalizeRelationsArray(clonedItem.relations);
+        }
+
+        return clonedItem;
     }
 
     cloneDataArray(data) {
@@ -563,6 +634,225 @@ class DataVisualizationApp {
         }
 
         return data.map((item) => this.cloneItem(item));
+    }
+
+    normalizeCommentMessageRecord(message, fallbackId = null) {
+        if (!message || typeof message !== 'object') {
+            return null;
+        }
+
+        const text = String(message.text ?? message.message ?? '').trim();
+        if (!text) {
+            return null;
+        }
+
+        return {
+            id: message.id || fallbackId || null,
+            author: String(message.author || 'User').trim() || 'User',
+            timestamp: GridDateUtils.normalizeLocalTimestamp(message.timestamp, GridDateUtils.createLocalTimestamp()),
+            text
+        };
+    }
+
+    normalizeChangeMetaRecord(meta) {
+        const normalizedMeta = meta && typeof meta === 'object'
+            ? this.cloneItem(meta)
+            : {};
+        const now = GridDateUtils.createLocalTimestamp();
+        const normalizedCreatedAt = GridDateUtils.normalizeLocalTimestamp(normalizedMeta.createdAt, now);
+
+        return {
+            ...normalizedMeta,
+            createdAt: normalizedCreatedAt,
+            updatedAt: GridDateUtils.normalizeLocalTimestamp(normalizedMeta.updatedAt, normalizedCreatedAt || now)
+        };
+    }
+
+    normalizeCommentThreadRecord(thread, fallbackId = null) {
+        if (!thread || typeof thread !== 'object') {
+            return null;
+        }
+
+        const threadId = thread.id || fallbackId || `thread-${Date.now()}`;
+        const normalizedMessages = [];
+
+        if (Array.isArray(thread.messages)) {
+            thread.messages.forEach((message, index) => {
+                const normalizedMessage = this.normalizeCommentMessageRecord(message, `${threadId}-${index + 1}`);
+                if (normalizedMessage) {
+                    normalizedMessages.push(normalizedMessage);
+                }
+            });
+        } else {
+            const primaryMessage = this.normalizeCommentMessageRecord(thread, `${threadId}-1`);
+            if (primaryMessage) {
+                normalizedMessages.push(primaryMessage);
+            }
+
+            if (Array.isArray(thread.replies)) {
+                thread.replies.forEach((reply, index) => {
+                    const normalizedReply = this.normalizeCommentMessageRecord(reply, `${threadId}-reply-${index + 1}`);
+                    if (normalizedReply) {
+                        normalizedMessages.push(normalizedReply);
+                    }
+                });
+            }
+        }
+
+        if (normalizedMessages.length === 0) {
+            return null;
+        }
+
+        return {
+            id: threadId,
+            messages: normalizedMessages
+        };
+    }
+
+    normalizeCommentThreadsValue(value) {
+        if (!value || typeof value !== 'object') {
+            return null;
+        }
+
+        const threads = Array.isArray(value.threads) ? value.threads : null;
+        if (!threads) {
+            const fallbackThread = this.normalizeCommentThreadRecord(value, value.id || 't1');
+            return fallbackThread ? { threads: [fallbackThread] } : null;
+        }
+
+        const normalizedThreads = threads
+            .map((thread, index) => this.normalizeCommentThreadRecord(thread, `t${index + 1}`))
+            .filter((thread) => thread !== null);
+
+        return normalizedThreads.length > 0 ? { threads: normalizedThreads } : null;
+    }
+
+    normalizeLegacyCommentsArray(comments) {
+        if (!Array.isArray(comments)) {
+            return null;
+        }
+
+        const normalizedThreads = comments
+            .map((comment, index) => this.normalizeCommentThreadRecord(comment, comment && comment.id ? comment.id : `t${index + 1}`))
+            .filter((thread) => thread !== null);
+
+        return normalizedThreads.length > 0 ? { threads: normalizedThreads } : null;
+    }
+
+    mergeCommentValues(primaryValue, legacyCommentsValue) {
+        const normalizedThreads = [];
+        const primaryThreads = this.normalizeCommentThreadsValue(primaryValue);
+        const legacyThreads = this.normalizeLegacyCommentsArray(legacyCommentsValue);
+
+        if (primaryThreads && Array.isArray(primaryThreads.threads)) {
+            normalizedThreads.push(...primaryThreads.threads.map((thread) => this.cloneValue(thread)));
+        }
+
+        if (legacyThreads && Array.isArray(legacyThreads.threads)) {
+            normalizedThreads.push(...legacyThreads.threads.map((thread) => this.cloneValue(thread)));
+        }
+
+        return normalizedThreads.length > 0 ? { threads: normalizedThreads } : null;
+    }
+
+    normalizeItemCommentFields(item) {
+        if (!item || typeof item !== 'object') {
+            return {};
+        }
+
+        const normalizedItem = this.cloneItem(item);
+        const mergedComment = this.mergeCommentValues(normalizedItem.comment, normalizedItem.comments);
+
+        if (mergedComment) {
+            normalizedItem.comment = mergedComment;
+        } else {
+            delete normalizedItem.comment;
+        }
+
+        delete normalizedItem.comments;
+        return normalizedItem;
+    }
+
+    normalizeDataCommentFields(data) {
+        if (!Array.isArray(data)) {
+            return [];
+        }
+
+        return data.map((item) => this.normalizeItemCommentFields(item));
+    }
+
+    getItemCommentThreads(item) {
+        return this.mergeCommentValues(item && item.comment, item && item.comments);
+    }
+
+    normalizeRelationPriority(priority) {
+        if (priority === undefined || priority === null || priority === '') {
+            return 1;
+        }
+
+        const normalizedPriority = Number(priority);
+        return Number.isFinite(normalizedPriority) ? normalizedPriority : 1;
+    }
+
+    normalizeRelationObject(relation) {
+        if (!relation || typeof relation !== 'object') {
+            return null;
+        }
+
+        const normalizedRelation = this.cloneValue(relation);
+        normalizedRelation.priority = this.normalizeRelationPriority(normalizedRelation.priority);
+        if (normalizedRelation.meta && typeof normalizedRelation.meta === 'object') {
+            const normalizedCreatedAt = GridDateUtils.normalizeLocalTimestamp(normalizedRelation.meta.createdAt, '');
+            const normalizedUpdatedAt = GridDateUtils.normalizeLocalTimestamp(normalizedRelation.meta.updatedAt, normalizedCreatedAt);
+            if (normalizedCreatedAt) {
+                normalizedRelation.meta.createdAt = normalizedCreatedAt;
+            }
+            if (normalizedUpdatedAt) {
+                normalizedRelation.meta.updatedAt = normalizedUpdatedAt;
+            }
+        }
+        return normalizedRelation;
+    }
+
+    normalizeRelationsArray(relations) {
+        if (!Array.isArray(relations)) {
+            return [];
+        }
+
+        return relations
+            .map((relation) => this.normalizeRelationObject(relation))
+            .filter((relation) => relation !== null);
+    }
+
+    normalizeRelationChangeEntry(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return null;
+        }
+
+        const normalizedEntry = this.cloneItem(entry);
+
+        if (normalizedEntry.target && typeof normalizedEntry.target === 'object') {
+            if (normalizedEntry.target.ownerItemId !== undefined && normalizedEntry.target.ownerItemId !== null) {
+                normalizedEntry.target.ownerItemId = String(normalizedEntry.target.ownerItemId);
+            }
+            if (normalizedEntry.target.relationId !== undefined && normalizedEntry.target.relationId !== null) {
+                normalizedEntry.target.relationId = String(normalizedEntry.target.relationId);
+            }
+        }
+
+        if (normalizedEntry.proposed && typeof normalizedEntry.proposed === 'object') {
+            normalizedEntry.proposed = this.normalizeRelationObject(normalizedEntry.proposed) || {};
+        }
+
+        if (normalizedEntry.baseline && typeof normalizedEntry.baseline === 'object' && Object.keys(normalizedEntry.baseline).length > 0) {
+            normalizedEntry.baseline = this.normalizeRelationObject(normalizedEntry.baseline) || {};
+        }
+
+        if (normalizedEntry.meta && typeof normalizedEntry.meta === 'object') {
+            normalizedEntry.meta = this.normalizeChangeMetaRecord(normalizedEntry.meta);
+        }
+
+        return normalizedEntry;
     }
 
     getEditorInputValue(fieldName, value) {
@@ -580,7 +870,15 @@ class DataVisualizationApp {
     }
 
     normalizeFieldValueForStorage(fieldName, value, referenceValue = undefined) {
-        const fieldType = this.fieldTypes.get(fieldName);
+        const normalizedFieldName = fieldName === 'comments' ? 'comment' : fieldName;
+        const fieldType = this.fieldTypes.get(normalizedFieldName) || this.fieldTypes.get(fieldName);
+
+        if (normalizedFieldName === 'comment') {
+            return this.cloneValue(this.getItemCommentThreads({
+                comment: fieldName === 'comment' ? value : null,
+                comments: fieldName === 'comments' ? value : null
+            }));
+        }
 
         if (fieldType === 'multi-value') {
             const normalizedEntries = (Array.isArray(value) ? value : value === null || value === undefined || value === '' ? [] : [value])
@@ -622,12 +920,12 @@ class DataVisualizationApp {
                 return null;
             }
 
-            const inputType = this.getFormInputType(fieldName);
+            const inputType = this.getFormInputType(normalizedFieldName);
             if (inputType === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
                 return trimmedValue;
             }
 
-            if ((typeof referenceValue === 'number' || (referenceValue === undefined && this.isNumericField(fieldName))) && !Number.isNaN(Number(trimmedValue))) {
+            if ((typeof referenceValue === 'number' || (referenceValue === undefined && this.isNumericField(normalizedFieldName))) && !Number.isNaN(Number(trimmedValue))) {
                 return Number(trimmedValue);
             }
 
@@ -638,7 +936,15 @@ class DataVisualizationApp {
     }
 
     normalizeFieldValueForComparison(fieldName, value) {
-        const fieldType = this.fieldTypes.get(fieldName);
+        const normalizedFieldName = fieldName === 'comments' ? 'comment' : fieldName;
+        const fieldType = this.fieldTypes.get(normalizedFieldName) || this.fieldTypes.get(fieldName);
+
+        if (normalizedFieldName === 'comment') {
+            return this.cloneValue(this.getItemCommentThreads({
+                comment: fieldName === 'comment' ? value : null,
+                comments: fieldName === 'comments' ? value : null
+            }));
+        }
 
         if (fieldType === 'multi-value') {
             return (Array.isArray(value) ? value : value === null || value === undefined || value === '' ? [] : [value])
@@ -651,12 +957,12 @@ class DataVisualizationApp {
         }
 
         if (typeof value === 'string') {
-            if (this.getFormInputType(fieldName) === 'date') {
+            if (this.getFormInputType(normalizedFieldName) === 'date') {
                 const normalizedValue = value.match(/^(\d{4}-\d{2}-\d{2})/);
                 return normalizedValue ? normalizedValue[1] : value;
             }
 
-            if (this.isNumericField(fieldName)) {
+            if (this.isNumericField(normalizedFieldName)) {
                 const trimmedValue = value.trim();
                 if (trimmedValue !== '' && !Number.isNaN(Number(trimmedValue))) {
                     return Number(trimmedValue);
@@ -694,7 +1000,7 @@ class DataVisualizationApp {
                         target: this.cloneItem(row.target || {}),
                         baseline: this.cloneItem(row.baseline || {}),
                         proposed: this.cloneItem(row.proposed || {}),
-                        meta: this.cloneItem(row.meta || {})
+                        meta: this.normalizeChangeMetaRecord(row.meta)
                     });
                 })
                 .filter((row) => row !== null)
@@ -708,8 +1014,8 @@ class DataVisualizationApp {
         // Preserve relation changes (V4) — pass through without field normalization
         if (changes && Array.isArray(changes.relations) && changes.relations.length > 0) {
             result.relations = changes.relations
-                .filter((entry) => entry && typeof entry === 'object')
-                .map((entry) => JSON.parse(JSON.stringify(entry)));
+                .map((entry) => this.normalizeRelationChangeEntry(entry))
+                .filter((entry) => entry !== null);
         }
 
         return result;
@@ -1101,7 +1407,7 @@ class DataVisualizationApp {
             }
 
             if (entry.action === 'create' && entry.proposed) {
-                const newRelation = JSON.parse(JSON.stringify(entry.proposed));
+                const newRelation = this.normalizeRelationObject(entry.proposed);
                 if (relationId && !newRelation.relationId) {
                     newRelation.relationId = relationId;
                 }
@@ -1116,6 +1422,8 @@ class DataVisualizationApp {
             } else if (entry.action === 'delete' && relationId) {
                 ownerItem.relations = ownerItem.relations.filter((r) => r.relationId !== relationId);
             }
+
+            ownerItem.relations = this.normalizeRelationsArray(ownerItem.relations);
         });
     }
 
@@ -1154,6 +1462,7 @@ class DataVisualizationApp {
                 targetItem.relations.push({
                     relationId: rel.relationId ? `${rel.relationId}-inv` : undefined,
                     type: inverseType,
+                    priority: this.normalizeRelationPriority(rel.priority),
                     direction: 'outward',
                     target: {
                         itemId: sourceItemId,
@@ -1231,7 +1540,7 @@ class DataVisualizationApp {
 
         return {
             author: this.getCurrentUserName(),
-            createdAt: baseMeta.createdAt || now,
+            createdAt: GridDateUtils.normalizeLocalTimestamp(baseMeta.createdAt, now),
             updatedAt: now
         };
     }
@@ -1251,6 +1560,81 @@ class DataVisualizationApp {
 
     getBaselineDataSnapshot() {
         return this.cloneDataArray(this.baselineData);
+    }
+
+    getPromotedDataSnapshot() {
+        const sourceItems = Array.isArray(this.dataset) ? this.dataset : [];
+        return sourceItems.map((item) => this.sanitizeItemForPromotion(item));
+    }
+
+    sanitizeItemForPromotion(item) {
+        const sanitizedItem = this.cloneItem(item || {});
+
+        Object.keys(sanitizedItem).forEach((fieldName) => {
+            const kind = this.getFieldKind(fieldName);
+            if (kind === 'derived' || kind === 'relationship') {
+                delete sanitizedItem[fieldName];
+            }
+        });
+
+        if (Array.isArray(sanitizedItem.relations)) {
+            const promotedRelations = sanitizedItem.relations
+                .filter((relation) => relation && !relation._derived)
+                .map((relation) => {
+                    const normalizedRelation = this.normalizeRelationObject(relation) || {};
+                    delete normalizedRelation._derived;
+                    return normalizedRelation;
+                });
+
+            if (promotedRelations.length > 0) {
+                sanitizedItem.relations = promotedRelations;
+            } else {
+                delete sanitizedItem.relations;
+            }
+        }
+
+        return sanitizedItem;
+    }
+
+    applyPromotedDataState(savedPayload = {}) {
+        const normalizedPayload = savedPayload && typeof savedPayload === 'object'
+            ? savedPayload
+            : {};
+        const schema = normalizedPayload.schema && typeof normalizedPayload.schema === 'object'
+            ? normalizedPayload.schema
+            : {};
+        const changesVersion = normalizedPayload.changes && normalizedPayload.changes.version
+            ? String(normalizedPayload.changes.version)
+            : '1';
+
+        this.baselineData = this.cloneDataArray(Array.isArray(normalizedPayload.data) ? normalizedPayload.data : []);
+        this.pendingChanges = this.normalizeChangesPayload({
+            version: changesVersion,
+            rows: [],
+            relations: []
+        });
+        this.schemaFields = schema.fields ? this.cloneItem(schema.fields) : {};
+        this.relationTypes = Array.isArray(schema.relationTypes)
+            ? this.cloneValue(schema.relationTypes)
+            : [];
+        this.metaInfo = normalizedPayload.meta ? this.cloneItem(normalizedPayload.meta) : (this.metaInfo || {});
+
+        this.dataset = this.buildEffectiveDataset();
+        this.analyzeFields();
+        this.pendingChanges = this.normalizeChangesPayload(this.pendingChanges);
+        this.dataset = this.buildEffectiveDataset();
+        this.updateFilteredData();
+        this.resolveGroupMemberships();
+        this.updateViewConfiguration();
+        this.renderFieldSelectors();
+        this.renderSlicers();
+        this.renderTags();
+        this.renderGroups();
+        this.renderGrid();
+
+        if (this.detailsPanelManager && typeof this.detailsPanelManager.refreshForSelection === 'function' && this.detailsPanelManager.isOpen()) {
+            this.detailsPanelManager.refreshForSelection();
+        }
     }
     
     // ===== FIELD ANALYSIS AND TYPE DETECTION =====
@@ -3133,6 +3517,20 @@ class DataVisualizationApp {
         const activeFilter = this.currentFilters.get(fieldName);
 
         if (!(activeFilter instanceof Set)) {
+            // No filter active — include all validValues (from header editor)
+            // so that configured columns/rows appear even when empty.
+            const schemaField = this.schemaFields[fieldName];
+            if (schemaField && Array.isArray(schemaField.validValues) && schemaField.validValues.length > 0) {
+                const validSet = new Set(schemaField.validValues.map((v) => String(v)));
+                const discoveredSet = new Set(normalizedDiscoveredValues);
+                // Start with discovered, then append any missing validValues
+                const merged = [...normalizedDiscoveredValues];
+                for (const v of schemaField.validValues) {
+                    const s = String(v);
+                    if (!discoveredSet.has(s)) merged.push(s);
+                }
+                return merged;
+            }
             return normalizedDiscoveredValues;
         }
 
@@ -3285,6 +3683,80 @@ class DataVisualizationApp {
             label: tagName,
             color: this.generateTagColor(tagName)
         };
+    }
+
+    isFieldValueColorApplicable(fieldName) {
+        if (!fieldName) {
+            return false;
+        }
+
+        if (typeof this.isTagFieldName === 'function' && this.isTagFieldName(fieldName)) {
+            return false;
+        }
+
+        const fieldType = this.fieldTypes.get(fieldName) || (this.schemaFields[fieldName] && this.schemaFields[fieldName].type) || null;
+        return fieldType === 'scalar';
+    }
+
+    getConfiguredFieldValueColors(fieldName) {
+        if (!fieldName || !this.isFieldValueColorApplicable(fieldName)) {
+            return {};
+        }
+
+        const schemaField = this.schemaFields[fieldName] || {};
+        return schemaField && typeof schemaField.valueColors === 'object' && schemaField.valueColors !== null
+            ? { ...schemaField.valueColors }
+            : {};
+    }
+
+    getFieldValueColor(fieldName, rawValue, fallbackValue = null) {
+        if (!fieldName || !this.isFieldValueColorApplicable(fieldName)) {
+            return '';
+        }
+
+        const valueColors = this.getConfiguredFieldValueColors(fieldName);
+
+        const candidates = [rawValue, fallbackValue]
+            .filter((value) => value !== undefined && value !== null && value !== '')
+            .map((value) => String(value));
+
+        for (const candidate of candidates) {
+            const configuredColor = valueColors[candidate];
+            if (typeof configuredColor === 'string' && configuredColor.trim()) {
+                return configuredColor.trim();
+            }
+        }
+
+        return '';
+    }
+
+    renderConfiguredFieldValue(element, item, fieldName) {
+        if (!element) {
+            return false;
+        }
+
+        const rawValue = this.getFieldValue(item, fieldName);
+        const displayValue = this.getDisplayValue(item, fieldName);
+        const shouldRenderAsChip = this.isFieldValueColorApplicable(fieldName);
+        const valueColor = this.getFieldValueColor(fieldName, rawValue, displayValue);
+
+        element.innerHTML = '';
+        if (displayValue === undefined || displayValue === null || displayValue === '') {
+            element.textContent = '';
+            return false;
+        }
+
+        if (!shouldRenderAsChip || !valueColor) {
+            element.textContent = displayValue;
+            return false;
+        }
+
+        const chip = document.createElement('span');
+        chip.className = 'card-tag card-field-value-tag';
+        chip.style.backgroundColor = valueColor;
+        chip.textContent = displayValue;
+        element.appendChild(chip);
+        return true;
     }
     
     generateTagColor(tagName) {
@@ -3726,6 +4198,58 @@ class DataVisualizationApp {
         this.applyCardSelectionClasses();
     }
 
+    findRenderedItemElement(itemId) {
+        const normalizedItemId = itemId === undefined || itemId === null ? null : String(itemId);
+        if (!normalizedItemId) {
+            return null;
+        }
+
+        return Array.from(document.querySelectorAll('.card[data-item-id]')).find(
+            (element) => String(element.dataset.itemId || '') === normalizedItemId
+        ) || null;
+    }
+
+    focusItemInGrid(itemId, options = {}) {
+        const {
+            select = true,
+            behavior = 'auto',
+            block = 'center',
+            inline = 'center',
+            defer = true,
+            suppressWarning = false
+        } = options;
+        const normalizedItemId = itemId === undefined || itemId === null ? null : String(itemId);
+        if (!normalizedItemId) {
+            return false;
+        }
+
+        if (select) {
+            this.setCardSelection([normalizedItemId]);
+        }
+
+        const revealItem = () => {
+            const renderedElement = this.findRenderedItemElement(normalizedItemId);
+            if (!renderedElement) {
+                if (!suppressWarning) {
+                    this.showNotification(`Item ${normalizedItemId} is not currently visible in the grid`, 'warning');
+                }
+                return false;
+            }
+
+            if (typeof renderedElement.scrollIntoView === 'function') {
+                renderedElement.scrollIntoView({ behavior, block, inline });
+            }
+            return true;
+        };
+
+        if (defer && typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(revealItem);
+            return true;
+        }
+
+        return revealItem();
+    }
+
     applyCardSelectionClasses() {
         document.querySelectorAll('.card').forEach((card) => {
             const id = card.dataset.itemId;
@@ -3930,6 +4454,16 @@ class DataVisualizationApp {
         this.applyCardSelectionClasses();
         this.applyTableGraphSelectionClasses();
         console.log(`Grid rendered: ${rows.length} rows x ${columns.length} columns`);
+
+        // Right-click on empty grid space → show all changes
+        dataGrid.addEventListener('contextmenu', (e) => {
+            if (e.target.closest('.card') || e.target.closest('.grid-cell-table') || e.target.closest('.grid-header')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (this.interactionManager && typeof this.interactionManager.showGridChangesContextMenu === 'function') {
+                this.interactionManager.showGridChangesContextMenu(e);
+            }
+        });
 
         // V5: Post-render hook for focus mode
         if (this.relationUIManager) {
@@ -4340,7 +4874,7 @@ class DataVisualizationApp {
         const resolvedTopRightField = selections.topRight || fallbackTopRightField;
         
         if (selections.topLeft) {
-            topLeft.textContent = this.getDisplayValue(item, selections.topLeft);
+            this.renderConfiguredFieldValue(topLeft, item, selections.topLeft);
             this.applyFieldStyling(topLeft, item, selections.topLeft);
         }
         
@@ -4355,7 +4889,7 @@ class DataVisualizationApp {
         }
         
         if (selections.bottomRight) {
-            bottomRight.textContent = this.getDisplayValue(item, selections.bottomRight);
+            this.renderConfiguredFieldValue(bottomRight, item, selections.bottomRight);
             bottomRight.dataset.fieldName = selections.bottomRight;
             bottomRight.classList.add('is-inline-editable');
         }
@@ -4450,7 +4984,7 @@ class DataVisualizationApp {
                 element.appendChild(tagSpan);
             });
         } else {
-            element.textContent = this.getDisplayValue(item, fieldName);
+            this.renderConfiguredFieldValue(element, item, fieldName);
         }
     }
     
