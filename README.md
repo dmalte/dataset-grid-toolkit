@@ -2,12 +2,12 @@
 
 ## Overview
 
-This public bundle contains a browser-based grid UI, a PySide6 desktop shell, and Python CLI converters that all share the same JSON dataset format. It is intended for local exploration, lightweight editing, Excel round-tripping, and CLI-driven import/export workflows without shipping the internal server code.
+This public bundle contains a PySide6 desktop shell and Python CLI converters that share the same JSON dataset format. It is intended for local exploration, lightweight editing, Excel round-tripping, and CLI-driven import/export workflows.
 
 ## Features
 
-- Browser-based grid with card and table views, filters, sticky headers, and pending-change overlays
-- Native desktop shell with file dialogs and YAML-driven tool execution through local CLI entry points
+- Native desktop shell with card and table views, filters, sticky headers, and pending-change overlays
+- YAML-driven tool execution through local CLI entry points
 - Excel import and export via `excel-to-json` and `json-to-excel`
 - Obsidian import and export via `obsidian2json`
 - Sample JSON and Excel files for local testing
@@ -29,7 +29,7 @@ Data flow:
 
 ## Installation
 
-Python 3.10+ is required.
+Python 3.10–3.13 is required (PySide6 does not yet support 3.14+).
 
 Install the root package extras for the desktop shell:
 
@@ -46,14 +46,6 @@ pip install -e .
 ```
 
 ## Usage
-
-Browser mode:
-
-```bash
-python -m http.server 8000
-```
-
-Then open `http://localhost:8000/grid/src/` and load `grid/data/samples/sample-data.json`.
 
 Desktop mode:
 
