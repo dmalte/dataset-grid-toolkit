@@ -2,13 +2,13 @@
 name = "data-visualization-grid"
 version = "0.1.0"
 description = "Data visualization grid with desktop app and Excel converters"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 desktop = [
-    "PySide6>=6.5",
-    "PySide6-WebEngine>=6.5",
+    "PySide6>=6.5; python_version<'3.14'",
+    "PySide6-WebEngine>=6.5; python_version<'3.14'",
 ]
 
 [build-system]

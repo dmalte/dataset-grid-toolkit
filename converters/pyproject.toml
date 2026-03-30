@@ -2,7 +2,7 @@
 name = "data2json-converters"
 version = "0.1.0"
 description = "Standalone Excel and JSON dataset converters for the visualization tools workspace"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10"
 dependencies = [
     "openpyxl>=3.1,<4",
     "PyQt6>=6.7,<7",
